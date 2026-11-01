@@ -92,7 +92,7 @@ drives            (id, company_id FK, role_title, job_type, ctc_lpa NUMERIC, loc
                    min_cgpa, max_backlogs, graduation_year, registration_deadline, drive_date,
                    status, created_by FK, created_at, updated_at)
 drive_branches    (drive_id FK, branch)                       PK(drive_id, branch)
-applications      (id, drive_id FK, student_id FK, status, applied_at)  UNIQUE(drive_id, student_id)
+applications      (id, drive_id FK, student_id FK, status, status_reason, applied_at, updated_at)  UNIQUE(drive_id, student_id)
 drive_rounds      (id, drive_id FK, round_no, name, scheduled_at)       UNIQUE(drive_id, round_no)
 round_results     (id, round_id FK, application_id FK, result, remarks) UNIQUE(round_id, application_id)
 placement_policies(id, type, ctc_threshold_lpa, max_offers, active, updated_by FK, updated_at)
@@ -102,7 +102,8 @@ audit_logs        (id, entity_type, entity_id, action, old_value JSONB, new_valu
 
 Enums:
 - Drive status: `DRAFT/OPEN/CLOSED/COMPLETED`
-- Application status: `APPLIED/SHORTLISTED/REJECTED/SELECTED/WITHDRAWN`
+- Application status: `APPLIED/SHORTLISTED/REJECTED/SELECTED/WITHDRAWN/INELIGIBLE`
+  (`REJECTED` = rejected by the company; `INELIGIBLE` = no longer meets criteria after an admin edit, reason in `status_reason`)
 - Round result: `CLEARED/NOT_CLEARED/ABSENT`
 
 ## Milestones (build in this order; one branch each)
@@ -128,5 +129,6 @@ Each milestone lists what "done" means.
 
 ## Current status
 <!-- I'll update this line as I go -->
-Milestone: 2 (not started). M1 done: Docker Postgres 17, Spring Boot 4.1.2 skeleton,
-/api/health with DB check, README v0.
+Milestone: 3 (not started). M1 done: Docker Postgres 17, Spring Boot 4.1.2 skeleton,
+/api/health with DB check, README v0. M2 done: Flyway V1 schema (10 tables, CHECKs,
+FK indexes, INELIGIBLE + status_reason) and V2 demo seed (1 admin, 6 students, 3 companies, 5 drives, policies).
