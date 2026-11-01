@@ -11,4 +11,6 @@ public interface StudentProfileRepository extends JpaRepository<StudentProfile, 
 	@EntityGraph(attributePaths = "user")
 	Optional<StudentProfile> findByUserId(Long userId);
 
+	boolean existsByRollNo(String rollNo);
+
 }

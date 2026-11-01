@@ -12,6 +12,7 @@ import org.springframework.data.core.PropertyReferenceException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -35,7 +36,9 @@ public class GlobalExceptionHandler {
 	private static final Map<String, String> CONSTRAINT_MESSAGES = Map.of(
 			"uq_companies_name", "A company with this name already exists",
 			"fk_drives_company", "This company still has drives and cannot be deleted",
-			"uq_applications_drive_student", "You have already applied to this drive");
+			"uq_applications_drive_student", "You have already applied to this drive",
+			"uq_users_email", "An account with this email already exists",
+			"uq_student_profiles_roll_no", "This roll number is already registered");
 
 	// ---------- 400 ----------
 
@@ -70,6 +73,14 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(PropertyReferenceException.class)
 	public ResponseEntity<ErrorResponse> handleBadSort(PropertyReferenceException ex, HttpServletRequest request) {
 		return build(HttpStatus.BAD_REQUEST, "Cannot sort by unknown field '" + ex.getPropertyName() + "'", request);
+	}
+
+	// ---------- 401 ----------
+
+	/** Failed login. Same message for unknown email and wrong password, so emails can't be probed. */
+	@ExceptionHandler(BadCredentialsException.class)
+	public ResponseEntity<ErrorResponse> handleBadCredentials(BadCredentialsException ex, HttpServletRequest request) {
+		return build(HttpStatus.UNAUTHORIZED, "Invalid email or password", request);
 	}
 
 	// ---------- 404 / 405 ----------
