@@ -179,3 +179,175 @@ Each entry records what we decided, what else we considered, and why.
 **Why:** A migration gives every fresh database the same realistic data, which makes eligibility demos interesting from day one. Natural-key joins keep the script independent of identity values. Relative deadlines keep OPEN drives open whenever the DB is recreated.
 
 **⚠️ Before deployment (Milestone 12):** the demo password is public (it's in the README). The production admin must be created from **environment variables** (for example `ADMIN_EMAIL` and `ADMIN_PASSWORD`, hashed at startup), and the demo seed must not run in production. One way is to move it to a separate Flyway location that only the dev profile enables.
+
+---
+
+## 13. `ddl-auto: validate` with hand-written entities
+**Milestone:** 3 · **Date:** 2026-11-01
+
+**Decision:**
+- Switch `spring.jpa.hibernate.ddl-auto` from `none` to `validate`.
+- Entities use `Short` for `SMALLINT` columns, `BigDecimal` for `NUMERIC`, `Instant` for `TIMESTAMPTZ`, `LocalDate` for `DATE`, and `@Enumerated(STRING)` for enums.
+- `drive_branches` is mapped as an `@ElementCollection` of the `Branch` enum on `Drive`.
+
+**Alternatives:**
+- Keep `none`.
+- Use `Integer` for `SMALLINT`.
+- Map `drive_branches` as a separate `@Entity`.
+
+**Why:** `validate` makes Hibernate compare entities with the Flyway schema at startup and refuse to start on a mismatch (a missing column, a wrong type), without ever changing the schema. It catches mapping bugs on day one instead of on the first query. `Integer` against `SMALLINT` fails validation, so the entity uses `Short` and DTOs convert. Branches have no identity of their own, so an element collection is simpler than a separate entity.
+
+---
+
+## 14. One global exception handler, with the DB as a backstop for conflicts
+**Milestone:** 3 · **Date:** 2026-11-01
+
+**Decision:**
+- A single `@RestControllerAdvice` returns `{timestamp, status, error, message, path}` for every error:
+
+| Status | Cases |
+|---|---|
+| 400 | validation, malformed JSON, wrong parameter type, unknown sort field |
+| 404 | not found, unknown URL |
+| 405 | wrong method |
+| 409 | `ConflictException`, plus DB constraint violations mapped from the constraint name to a friendly message |
+| 500 | everything else: generic message, stack trace logged on the server only |
+
+- Services check business conflicts first (duplicate name, company has drives). The DB constraint is the backstop for race conditions.
+
+**Alternatives:**
+- Per-controller `try/catch`.
+- Spring's default error JSON or `ProblemDetail`.
+- Relying only on DB constraints.
+
+**Why:** Clients (the React frontend, Postman) can rely on a single error shape. Service checks give the clearest messages, and the DB constraint guarantees correctness when two requests race. Without the extra 400/404/405 handlers, the catch-all would wrongly report client mistakes as 500s.
+
+---
+
+## 15. `PageResponse<T>` and capped page sizes
+**Milestone:** 3 · **Date:** 2026-11-01
+
+**Decision:**
+- Lists return `PageResponse<T>(content, page, size, totalElements, totalPages)`.
+- Page size defaults to 20 and is capped at 100 (`spring.data.web.pageable.*`).
+- Pages are 0-based, and a size larger than 100 is quietly capped.
+
+**Alternatives:**
+- Return Spring's `Page` directly.
+- Use custom `page`/`size` parameters.
+
+**Why:** Spring's `Page` JSON is an internal structure that can change between versions, and Spring Data itself warns against serialising it. Our own record is a stable API contract for the frontend. The cap stops a client from asking for 1 million rows.
+
+---
+
+## 16. Known limitation: company name uniqueness is case-insensitive only in the service
+**Milestone:** 3 · **Date:** 2026-11-01
+
+**Decision:**
+- `CompanyService` rejects duplicate names ignoring case (`existsByNameIgnoreCase`).
+- The DB constraint `uq_companies_name` is case-sensitive.
+- We are **not** adding a `lower(name)` unique index for now.
+
+**Alternatives:** A `V3` migration that replaces the constraint with `CREATE UNIQUE INDEX ... ON companies (lower(name))`.
+
+**Why:** Only TPO admins create companies, so concurrency is very low. Two simultaneous creates of "Acme" and "acme" are the only way to get past the check, and that is unlikely. In a 10-parallel-request test, the service check caught all 9 duplicates. Revisit this if more roles can create companies.
+
+---
+
+## 17. Entity → DTO mapping happens inside `@Transactional` service methods
+**Milestone:** 3 · **Date:** 2026-11-01
+
+**Decision:**
+- Services return DTOs, never entities.
+- Hand-written `@Component` mappers (for example `CompanyMapper`) also trim input and turn blank strings into `null`.
+
+**Alternatives:**
+- Map in controllers.
+- Turn `open-in-view` back on.
+- Use MapStruct.
+
+**Why:** With `open-in-view: false` and LAZY relationships (Drive → Company), touching a lazy field after the transaction ends throws `LazyInitializationException`. Mapping inside the transaction makes that impossible, and it keeps entities out of the web layer. MapStruct isn't in our stack, and hand-written mappers are easy to read and explain.
+
+---
+
+## 18. Drive status transitions as explicit endpoints, with the rules in one map
+**Milestone:** 3 · **Date:** 2026-11-01
+
+**Decision:**
+- Status changes only through `POST /api/drives/{id}/open | /close | /complete`. `PUT` never changes the status, and a new drive always starts as `DRAFT`.
+- All the rules live in `DriveService`:
+  - `ALLOWED_TRANSITIONS` = DRAFT→OPEN, OPEN→CLOSED, CLOSED→COMPLETED.
+  - `EDITABLE_STATUSES` = DRAFT, OPEN.
+  - `checkCanOpen()`: the deadline must be in the future and there must be at least one branch.
+- `checkCanOpen()` runs again whenever an OPEN drive is edited, so an OPEN drive can never become invalid.
+- Every blocked change is a 409 that names the allowed next step.
+
+**Alternatives:**
+- Let `PUT` change `status`.
+- A generic `PATCH {status}`.
+- Put the rules in the entity or spread `if`s across methods.
+
+**Why:** Each endpoint is one clear action, which is easy to secure per role later and easy to audit. Keeping the rules in one map makes them easy to read, explain and test: 12 parameterised cases cover every from → to combination. The unit tests use their own hand-written list of allowed transitions, so they would catch a wrong entry in the map.
+
+---
+
+## 19. Avoid N+1 on the drives list: `@EntityGraph` for company, `@BatchSize` for branches
+**Milestone:** 3 · **Date:** 2026-11-01
+
+**Decision:**
+- `DriveRepository.search` uses `@EntityGraph(attributePaths = "company")`.
+- `Drive.branches` has `@BatchSize(size = 100)`.
+- The filters are optional JPQL parameters (`:status IS NULL OR ...`).
+
+**Alternatives:**
+- `JOIN FETCH` both the company and the branches.
+- A global `hibernate.default_batch_fetch_size`.
+- Turn on EAGER fetching.
+
+**Why:** It was measured with SQL logging on 5 drives:
+
+| | Queries per request |
+|---|---|
+| Before | 9: 1 for the drives, 3 for companies, 5 for branches. It grows with page size, so about 200 for 100 drives. |
+| After | 2: drives JOINed with companies, then one `drive_id = any(?)` query for the branches. A `count(*)` is added when there's more than one page. |
+
+The company is a many-to-one, so JOINing it keeps one row per drive and paging still works in SQL. The branches are a collection: `JOIN FETCH` with paging makes Hibernate load every row and page them in memory (warning HHH90003004), so they're batch-loaded instead. EAGER would load them everywhere, even where they aren't needed.
+
+---
+
+## 20. `CurrentUserProvider` interface with a temporary demo-admin implementation
+**Milestone:** 3 · **Date:** 2026-11-01
+
+**Decision:**
+- Services ask `CurrentUserProvider.currentUserId()` who is calling.
+- Until Milestone 5, `DemoAdminCurrentUserProvider` returns the id of `admin@placementhub.dev`, looked up by email. It is marked TODO for Milestone 5.
+- `createdBy` uses `getReferenceById`, which doesn't need an extra SELECT.
+
+**Alternatives:**
+- Hard-code `createdBy = 1`.
+- Make `created_by` nullable.
+- Build JWT login now.
+
+**Why:** `DriveService` depends on *what* it needs (the current user's id), not *how* it is found. In Milestone 5 we add a JWT-based implementation and delete the demo one, and the services and their tests don't change. In tests we just mock the interface. Looking the admin up by email avoids relying on identity values.
+
+---
+
+## 21. Injected `Clock` for time-based rules
+**Milestone:** 3 · **Date:** 2026-11-01
+
+**Decision:** A `Clock` bean (`Clock.systemUTC()`) is injected into services. Services call `Instant.now(clock)`, never `Instant.now()`.
+
+**Alternatives:** Call `Instant.now()` directly.
+
+**Why:** Rules like "the deadline must be in the future" depend on the current time. With a fixed `Clock` in tests, these rules are tested exactly, including the "deadline is exactly now" edge case, without flaky time-dependent tests. This will matter again for "withdraw before the deadline" in Milestone 4.
+
+---
+
+## 22. Known limitation: unknown enum values in a JSON body give a generic 400
+**Milestone:** 3 · **Date:** 2026-11-01
+
+**Decision:** For now, a body like `"branches": ["XYZ"]` returns 400 "Malformed JSON request body", without naming the field.
+
+**Alternatives:** Inspect Jackson's `InvalidFormatException` in the handler and say, for example, "Invalid value 'XYZ' for branches. Allowed: CSE, IT, ...".
+
+**Why:** The status code is correct and the request is rejected safely. The friendlier message is a small improvement best done in the Milestone 11 testing pass, or when the frontend needs it (the frontend sends enum values from dropdowns, so this is rare).

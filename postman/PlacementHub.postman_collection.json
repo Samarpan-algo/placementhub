@@ -1,0 +1,396 @@
+{
+  "info": {
+    "name": "PlacementHub",
+    "description": "PlacementHub API (Milestone 3): health, companies, drives.\n\nRun folders top to bottom (or use the Collection Runner): later requests use ids saved by earlier ones (companyId, driveId).\n\nNo auth yet: every request acts as the demo admin until Milestone 5.\n\nNote: there is no DELETE for drives, so drives created by this collection stay in your local DB. Reset with `docker compose down -v` then `docker compose up -d` (deletes all local data).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "seedCompanyId", "value": "3", "description": "Ironbridge Engineering from the V2 seed" },
+    { "key": "seedCompanyWithDrivesId", "value": "1", "description": "Nimbus Systems (has drives)" },
+    { "key": "companyId", "value": "" },
+    { "key": "driveId", "value": "" },
+    { "key": "futureDeadline", "value": "" },
+    { "key": "pastDeadline", "value": "" },
+    { "key": "uniqueSuffix", "value": "" }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Fresh dates and a unique suffix for every request, so the collection can be re-run.",
+          "const day = 24 * 60 * 60 * 1000;",
+          "pm.collectionVariables.set('futureDeadline', new Date(Date.now() + 20 * day).toISOString());",
+          "pm.collectionVariables.set('pastDeadline', new Date(Date.now() - 2 * day).toISOString());",
+          "if (!pm.collectionVariables.get('uniqueSuffix')) {",
+          "  pm.collectionVariables.set('uniqueSuffix', Date.now().toString().slice(-6));",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Every error must use the standard error shape.",
+          "if (pm.response.code >= 400 && pm.request.url.getPath() !== '/api/health') {",
+          "  pm.test('error body has {timestamp, status, error, message, path}', () => {",
+          "    const b = pm.response.json();",
+          "    pm.expect(b).to.have.all.keys('timestamp', 'status', 'error', 'message', 'path');",
+          "    pm.expect(b.status).to.eql(pm.response.code);",
+          "  });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check (200)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/health" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200 UP', () => {",
+            "  pm.response.to.have.status(200);",
+            "  pm.expect(pm.response.json()).to.eql({ status: 'UP', database: 'UP' });",
+            "});"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "Companies",
+      "item": [
+        {
+          "name": "Create company (201)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/companies",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Postman Test Co {{uniqueSuffix}}\",\n  \"website\": \"https://postman-test.example.com\",\n  \"description\": \"Created by the Postman collection\"\n}" }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('201 + Location header', () => {",
+            "  pm.response.to.have.status(201);",
+            "  pm.response.to.have.header('Location');",
+            "});",
+            "pm.collectionVariables.set('companyId', pm.response.json().id);"
+          ] } }]
+        },
+        {
+          "name": "List companies (200, paginated)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/companies?page=0&size=20&sort=name,asc" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200 PageResponse', () => {",
+            "  pm.response.to.have.status(200);",
+            "  pm.expect(pm.response.json()).to.have.all.keys('content', 'page', 'size', 'totalElements', 'totalPages');",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "Get company by id (200)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/companies/{{companyId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200', () => pm.response.to.have.status(200));"
+          ] } }]
+        },
+        {
+          "name": "Update company (200)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/companies/{{companyId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Postman Test Co {{uniqueSuffix}} (renamed)\",\n  \"website\": \"\",\n  \"description\": \"Updated\"\n}" }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200, blank website saved as null', () => {",
+            "  pm.response.to.have.status(200);",
+            "  pm.expect(pm.response.json().website).to.be.null;",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "ERR Create invalid company (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/companies",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"\",\n  \"website\": \"not-a-url\"\n}" }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('400 lists bad fields', () => {",
+            "  pm.response.to.have.status(400);",
+            "  pm.expect(pm.response.json().message).to.include('name').and.to.include('website');",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "ERR Malformed JSON (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/companies",
+            "body": { "mode": "raw", "raw": "{ \"name\": \"Oops\"," }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('400', () => pm.response.to.have.status(400));"
+          ] } }]
+        },
+        {
+          "name": "ERR Get missing company (404)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/companies/999999" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('404', () => pm.response.to.have.status(404));"
+          ] } }]
+        },
+        {
+          "name": "ERR Duplicate name, different case (409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/companies",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"nimbus systems\"\n}" }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('409', () => pm.response.to.have.status(409));"
+          ] } }]
+        },
+        {
+          "name": "ERR Delete company that has drives (409)",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/api/companies/{{seedCompanyWithDrivesId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('409 mentions drives', () => {",
+            "  pm.response.to.have.status(409);",
+            "  pm.expect(pm.response.json().message).to.include('drive');",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "ERR Invalid id type (400)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/companies/abc" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('400', () => pm.response.to.have.status(400));"
+          ] } }]
+        },
+        {
+          "name": "ERR Unknown sort field (400)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/companies?sort=foo" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('400', () => pm.response.to.have.status(400));"
+          ] } }]
+        },
+        {
+          "name": "Delete company without drives (204)",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/api/companies/{{companyId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('204', () => pm.response.to.have.status(204));"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "Drives",
+      "item": [
+        {
+          "name": "Create drive (201, DRAFT)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/drives",
+            "body": { "mode": "raw", "raw": "{\n  \"companyId\": {{seedCompanyId}},\n  \"roleTitle\": \"Postman Backend Intern\",\n  \"jobType\": \"INTERNSHIP\",\n  \"ctcLpa\": 4.80,\n  \"location\": \"Remote\",\n  \"minCgpa\": 7.0,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\"CSE\", \"IT\"]\n}" }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('201 DRAFT with company name and sorted branches', () => {",
+            "  pm.response.to.have.status(201);",
+            "  pm.response.to.have.header('Location');",
+            "  const d = pm.response.json();",
+            "  pm.expect(d.status).to.eql('DRAFT');",
+            "  pm.expect(d.companyName).to.be.a('string');",
+            "  pm.expect(d.branches).to.eql(['CSE', 'IT']);",
+            "});",
+            "pm.collectionVariables.set('driveId', pm.response.json().id);"
+          ] } }]
+        },
+        {
+          "name": "ERR Create drive, unknown company (404)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/drives",
+            "body": { "mode": "raw", "raw": "{\n  \"companyId\": 999999,\n  \"roleTitle\": \"Ghost Role\",\n  \"jobType\": \"FULL_TIME\",\n  \"ctcLpa\": 5.00,\n  \"minCgpa\": 6.0,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\"CSE\"]\n}" }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('404 Company with id 999999 not found', () => {",
+            "  pm.response.to.have.status(404);",
+            "  pm.expect(pm.response.json().message).to.eql('Company with id 999999 not found');",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "ERR Create drive, invalid fields (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/drives",
+            "body": { "mode": "raw", "raw": "{\n  \"companyId\": {{seedCompanyId}},\n  \"roleTitle\": \"\",\n  \"jobType\": \"FULL_TIME\",\n  \"ctcLpa\": 0,\n  \"minCgpa\": 11,\n  \"maxBacklogs\": -1,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\"CSE\"]\n}" }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('400 lists bad fields', () => {",
+            "  pm.response.to.have.status(400);",
+            "  const m = pm.response.json().message;",
+            "  ['ctcLpa', 'maxBacklogs', 'minCgpa', 'roleTitle'].forEach(f => pm.expect(m).to.include(f));",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "List drives (200)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/drives?page=0&size=20" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200', () => pm.response.to.have.status(200));"
+          ] } }]
+        },
+        {
+          "name": "List drives filtered: OPEN for company 2 (200)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/drives?status=OPEN&companyId=2" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200, every result matches the filters', () => {",
+            "  pm.response.to.have.status(200);",
+            "  pm.response.json().content.forEach(d => {",
+            "    pm.expect(d.status).to.eql('OPEN');",
+            "    pm.expect(d.companyId).to.eql(2);",
+            "  });",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "ERR List drives, unknown status (400)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/drives?status=BOGUS" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('400', () => pm.response.to.have.status(400));"
+          ] } }]
+        },
+        {
+          "name": "Get drive by id (200)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/drives/{{driveId}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200', () => pm.response.to.have.status(200));"
+          ] } }]
+        },
+        {
+          "name": "ERR Get missing drive (404)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/drives/999999" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('404', () => pm.response.to.have.status(404));"
+          ] } }]
+        },
+        {
+          "name": "Update DRAFT drive (200)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/drives/{{driveId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"roleTitle\": \"Postman Backend Intern (edited)\",\n  \"jobType\": \"INTERNSHIP\",\n  \"ctcLpa\": 5.20,\n  \"location\": \"Bengaluru\",\n  \"minCgpa\": 7.5,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\"CSE\", \"IT\", \"ECE\"]\n}" }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200 edited', () => {",
+            "  pm.response.to.have.status(200);",
+            "  pm.expect(pm.response.json().roleTitle).to.include('(edited)');",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "ERR Complete a DRAFT drive (409)",
+          "request": { "method": "POST", "url": "{{baseUrl}}/api/drives/{{driveId}}/complete" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('409 DRAFT -> COMPLETED not allowed', () => {",
+            "  pm.response.to.have.status(409);",
+            "  pm.expect(pm.response.json().message).to.include('Allowed: DRAFT → OPEN');",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "Open drive (200)",
+          "request": { "method": "POST", "url": "{{baseUrl}}/api/drives/{{driveId}}/open" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200 OPEN', () => {",
+            "  pm.response.to.have.status(200);",
+            "  pm.expect(pm.response.json().status).to.eql('OPEN');",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "ERR Open again (409)",
+          "request": { "method": "POST", "url": "{{baseUrl}}/api/drives/{{driveId}}/open" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('409', () => pm.response.to.have.status(409));"
+          ] } }]
+        },
+        {
+          "name": "ERR Update OPEN drive with past deadline (409)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/drives/{{driveId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"roleTitle\": \"Postman Backend Intern\",\n  \"jobType\": \"INTERNSHIP\",\n  \"ctcLpa\": 5.20,\n  \"minCgpa\": 7.5,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{pastDeadline}}\",\n  \"branches\": [\"CSE\"]\n}" }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('409 OPEN drive must keep a future deadline', () => {",
+            "  pm.response.to.have.status(409);",
+            "  pm.expect(pm.response.json().message).to.include('Cannot save OPEN drive');",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "Close drive (200)",
+          "request": { "method": "POST", "url": "{{baseUrl}}/api/drives/{{driveId}}/close" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200 CLOSED', () => {",
+            "  pm.response.to.have.status(200);",
+            "  pm.expect(pm.response.json().status).to.eql('CLOSED');",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "ERR Update CLOSED drive (409)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/drives/{{driveId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"roleTitle\": \"Too late\",\n  \"jobType\": \"INTERNSHIP\",\n  \"ctcLpa\": 5.20,\n  \"minCgpa\": 7.5,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\"CSE\"]\n}" }
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('409 only DRAFT or OPEN can be edited', () => {",
+            "  pm.response.to.have.status(409);",
+            "  pm.expect(pm.response.json().message).to.include('Only DRAFT or OPEN');",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "Complete drive (200)",
+          "request": { "method": "POST", "url": "{{baseUrl}}/api/drives/{{driveId}}/complete" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200 COMPLETED', () => {",
+            "  pm.response.to.have.status(200);",
+            "  pm.expect(pm.response.json().status).to.eql('COMPLETED');",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "ERR Re-open a COMPLETED drive (409)",
+          "request": { "method": "POST", "url": "{{baseUrl}}/api/drives/{{driveId}}/open" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('409 COMPLETED is final', () => {",
+            "  pm.response.to.have.status(409);",
+            "  pm.expect(pm.response.json().message).to.include('COMPLETED is final');",
+            "});"
+          ] } }]
+        }
+      ]
+    }
+  ]
+}
