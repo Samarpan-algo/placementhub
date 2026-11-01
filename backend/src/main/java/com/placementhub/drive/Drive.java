@@ -6,6 +6,8 @@ import java.time.LocalDate;
 import java.util.EnumSet;
 import java.util.Set;
 
+import org.hibernate.annotations.BatchSize;
+
 import com.placementhub.common.Branch;
 import com.placementhub.company.Company;
 import com.placementhub.user.User;
@@ -78,6 +80,9 @@ public class Drive {
 	@JoinColumn(name = "created_by", nullable = false)
 	private User createdBy;
 
+	// Batch-load branches for up to 100 drives in one "WHERE drive_id IN (...)" query (avoids N+1 on lists).
+	// Not JOIN FETCHed: fetching a collection with paging makes Hibernate page in memory.
+	@BatchSize(size = 100)
 	@ElementCollection(fetch = FetchType.LAZY)
 	@CollectionTable(name = "drive_branches", joinColumns = @JoinColumn(name = "drive_id"))
 	@Enumerated(EnumType.STRING)
