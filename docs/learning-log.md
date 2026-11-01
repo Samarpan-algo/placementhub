@@ -57,3 +57,25 @@ Short notes, in plain words, on what I learned in each milestone.
 - **`@Valid` + Bean Validation** (`@NotBlank`, `@Size`, `@URL`) rejects bad input before my service even runs. The handler lists every bad field in one message.
 - **Pagination:** `Pageable` reads `?page=0&size=20&sort=name`. I wrap the `Page` in my own `PageResponse` record so the JSON shape is stable. Page size is capped at 100.
 - **Testing a race:** I sent 10 identical creates at once with `HttpClient`. 1 was created and 9 got 409, so duplicates were never saved.
+
+---
+
+## Milestone 3, Session B: Drives API (2026-11-01)
+
+**What I built:**
+- The Drives API: create (always DRAFT), get, paginated list with `status`/`companyId` filters, and update.
+- Status endpoints: `/open`, `/close`, `/complete`.
+- 28 unit tests for the drive rules.
+- A Postman collection for every Company and Drive endpoint.
+
+**What I learned:**
+- **The N+1 problem:** I load a list with 1 query, then Hibernate runs 1 more query *per row* for each lazy field I touch (company, branches). That's 1 + N queries. It looks fine with 5 rows and gets very slow with 100. SQL logging showed 9 queries, and after the fix there were 2.
+- **The fix depends on the relationship type:** a many-to-one (Drive → Company) can be JOINed into the same query with `@EntityGraph`. A collection (branches) can't be JOINed when paging, because Hibernate would page in memory. `@BatchSize` loads it for all rows on the page in one `IN (...)` query.
+- **State machine in one place:** a `Map` of allowed transitions plus one `changeStatus` method is easier to read and test than `if`s spread across methods. A blocked move gives a 409 that says what *is* allowed.
+- **Parameterised tests:** `@ParameterizedTest` + `@MethodSource` ran all 12 from → to combinations from one test method. The expected answers are written separately from the code, so the test really checks the rules.
+- **Mockito unit tests** run with no DB and no Spring context, in milliseconds. I mock the repositories, use the real mapper, and use a fixed `Clock`.
+- **An injected `Clock`** makes time-based rules testable. "Deadline is exactly now" is a real edge case that I can only test with a fixed time.
+- **Program to an interface:** `CurrentUserProvider` hides *how* we know the user. Swapping the demo version for JWT in Milestone 5 won't touch `DriveService`.
+- **`getReferenceById`** gives a lazy proxy that's enough to set a foreign key, without a SELECT.
+- **Exceptions roll back the transaction:** when an edit failed with a 409 after I had already changed fields on the entity, nothing was saved, because Spring rolls back on a `RuntimeException`.
+- **Postman collections:** variables (`{{baseUrl}}`, `{{driveId}}`) plus small test scripts turn a list of requests into a repeatable API test run.
