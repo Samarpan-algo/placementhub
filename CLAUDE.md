@@ -145,4 +145,4 @@ M3 done: entities (ddl-auto validate), global error handler, PageResponse, Compa
 with status transitions, N+1-safe list, CurrentUserProvider (demo admin, TODO M5), 28 unit tests, Postman collection.
 M4 done: student profile (name/phone only), EligibilityService (6 rules, all reasons), browse with eligible/reasons/
 applicationStatus, apply (422 + details, race-safe 409) / withdraw (OPEN + before deadline, owner-only 404),
-X-Demo-User-Id header (TODO M5), 84 unit tests, Postman 76/76.
+X-Demo-User-Id header (replaced by JWT in M5), 84 unit tests, Postman 76/76.
