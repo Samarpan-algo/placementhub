@@ -3,15 +3,13 @@ package com.placementhub.application;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
+import com.placementhub.common.StudentTimeFormat;
 import com.placementhub.drive.Drive;
 import com.placementhub.drive.DriveStatus;
 import com.placementhub.student.StudentProfile;
@@ -24,11 +22,6 @@ import com.placementhub.student.StudentProfile;
 @Service
 public class EligibilityService {
 
-	/** Deadlines in messages are shown in Indian time, because students read them. */
-	private static final ZoneId STUDENT_ZONE = ZoneId.of("Asia/Kolkata");
-	private static final DateTimeFormatter DEADLINE_FORMAT =
-			DateTimeFormatter.ofPattern("d MMM yyyy, h:mm a 'IST'", Locale.ENGLISH).withZone(STUDENT_ZONE);
-
 	public EligibilityResult evaluate(StudentProfile student, Drive drive, Instant now) {
 		List<String> reasons = new ArrayList<>();
 
@@ -39,7 +32,7 @@ public class EligibilityService {
 
 		// 2. Registration must still be open: "now" strictly before the deadline
 		if (!now.isBefore(drive.getRegistrationDeadline())) {
-			reasons.add("Registration closed on " + DEADLINE_FORMAT.format(drive.getRegistrationDeadline()));
+			reasons.add("Registration closed on " + StudentTimeFormat.format(drive.getRegistrationDeadline()));
 		}
 
 		// 3. Student's branch must be one of the drive's branches
