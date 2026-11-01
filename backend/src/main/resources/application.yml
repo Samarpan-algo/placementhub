@@ -1,0 +1,16 @@
+spring:
+  application:
+    name: placementhub
+
+  # Values come from environment variables; the part after ":" is the local dev default.
+  # KEEP IN SYNC: the defaults (DB name, user, password, port) must match .env.example in the repo root.
+  # Spring Boot does NOT read .env — only Docker Compose does.
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/placementhub}
+    username: ${DB_USERNAME:placementhub}
+    password: ${DB_PASSWORD:placementhub_dev}
+
+  jpa:
+    hibernate:
+      ddl-auto: none        # Flyway will own the schema from Milestone 2
+    open-in-view: false     # no lazy-loading DB queries during web response rendering
