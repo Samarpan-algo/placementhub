@@ -351,3 +351,77 @@ The company is a many-to-one, so JOINing it keeps one row per drive and paging s
 **Alternatives:** Inspect Jackson's `InvalidFormatException` in the handler and say, for example, "Invalid value 'XYZ' for branches. Allowed: CSE, IT, ...".
 
 **Why:** The status code is correct and the request is rejected safely. The friendlier message is a small improvement best done in the Milestone 11 testing pass, or when the frontend needs it (the frontend sends enum values from dropdowns, so this is rare).
+
+---
+
+## 23. Students can edit only their name and phone; academic fields are read-only
+**Milestone:** 4 · **Date:** 2026-11-01
+
+**Decision:**
+- `PUT /api/students/me` accepts only `fullName` and `phone`.
+- CGPA, active backlogs, branch, graduation year and roll number can't be changed by students:
+  - the request DTO has no such fields;
+  - the entity has no setters for them;
+  - unknown JSON fields (e.g. `"cgpa": 9.9`) are ignored, which is Spring Boot's default.
+- Admin-side updates to academic data are a later concern.
+
+**Alternatives:**
+- One shared profile DTO with a check on "who is editing".
+- Reject unknown fields with 400 (`FAIL_ON_UNKNOWN_PROPERTIES`) for every endpoint.
+
+**Why:** Eligibility decisions are only trustworthy if a student can't raise their own CGPA or clear their own backlogs. Leaving the fields out of the DTO is a structural guarantee: no code path exists that could copy them. The demo confirmed it: a PUT with `cgpa: 9.9, branch: IT, rollNo: HACKED` changed only the name and phone. Ignoring unknown fields keeps the API forgiving for clients, and the response shows the unchanged values.
+
+---
+
+## 24. Temporary identity via the `X-Demo-User-Id` header
+**Milestone:** 4 · **Date:** 2026-11-01
+
+**Decision:** `DemoHeaderCurrentUserProvider` replaces `DemoAdminCurrentUserProvider`:
+
+| Header | Result |
+|---|---|
+| Missing | the demo admin |
+| A number | that user, or 404 if the user doesn't exist |
+| Not a number | 400 |
+
+- `CurrentStudentResolver.requireProfile()` maps the current user to their profile, with a 404 "Student profile not found" for users who have none (such as the admin).
+
+**Alternatives:**
+- Build JWT login now (Milestone 5).
+- Pass `studentId` as a path or query parameter.
+
+**Why:** It lets us demo and test student flows as different seeded students before login exists. Because services only use `CurrentUserProvider` and `CurrentStudentResolver`, Milestone 5 only replaces the header class. **It is NOT secure**, because anyone can send any id. It is marked TODO and deleted in Milestone 5. A path parameter like `/students/3` would bake an insecure pattern into the API design.
+
+---
+
+## 25. `EligibilityService` is pure logic and reports every failing reason
+**Milestone:** 4 · **Date:** 2026-11-01
+
+**Decision:**
+- `evaluate(StudentProfile, Drive, Instant now)` has no dependencies and makes no repository or clock calls. The caller passes `now`, from the `Clock` bean.
+- It checks all 6 rules in a fixed order (drive status, deadline, branch, CGPA, backlogs, batch) and returns every failing reason.
+- Boundaries:
+  - CGPA equal to the minimum passes, compared with `BigDecimal.compareTo`, because `7.5` and `7.50` aren't `equals`.
+  - Backlogs equal to the maximum pass.
+  - A deadline exactly "now" fails.
+- Messages include the real numbers, and deadlines are shown in IST (`Asia/Kolkata`) because students read them.
+
+**Alternatives:**
+- Stop at the first failure.
+- Let the service load data itself.
+- Use the Strategy pattern now.
+
+**Why:** A pure function is trivial to unit-test (23 tests, no mocks, milliseconds) and can be reused for browse (now), apply (Session B) and criteria-change re-evaluation (Milestone 7). Listing every reason saves students from fixing one problem only to discover the next. The Strategy pattern is reserved for placement policies (Milestone 6), where rules are configurable. Eligibility rules are fixed, so a plain method is clearer.
+
+---
+
+## 26. Known limitation: "eligible only" browsing filters and pages in memory
+**Milestone:** 4 · **Date:** 2026-11-01
+
+**Decision:** `GET /api/students/me/drives` loads **all OPEN drives**, evaluates each one with `EligibilityService`, filters if `eligibleOnly=true`, and pages in memory.
+- It always runs 4 queries: the header check, the profile with the user, the drives JOIN companies, and the branches batch.
+- Only `page` and `size` are supported, not `sort`. Drives are always sorted by the soonest deadline.
+
+**Alternatives:** Repeat the rules as SQL `WHERE` conditions, so the DB filters and pages.
+
+**Why:** `EligibilityService` stays the **single source of truth**. With rules in both SQL and Java, they could drift apart, and a drive might be listed as eligible but then fail on apply. A college has tens of OPEN drives at a time, so this is cheap. **Limit:** it's fine up to a few hundred OPEN drives. Beyond that, move to SQL pre-filtering, with Java still producing the reasons.

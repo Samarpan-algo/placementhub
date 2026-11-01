@@ -79,3 +79,25 @@ Short notes, in plain words, on what I learned in each milestone.
 - **`getReferenceById`** gives a lazy proxy that's enough to set a foreign key, without a SELECT.
 - **Exceptions roll back the transaction:** when an edit failed with a 409 after I had already changed fields on the entity, nothing was saved, because Spring rolls back on a `RuntimeException`.
 - **Postman collections:** variables (`{{baseUrl}}`, `{{driveId}}`) plus small test scripts turn a list of requests into a repeatable API test run.
+
+---
+
+## Milestone 4, Session A: Student profile and EligibilityService (2026-11-01)
+
+**What I built:**
+- The `StudentProfile` and `Application` entities.
+- A temporary `X-Demo-User-Id` header identity.
+- `GET`/`PUT /api/students/me`, with only name and phone editable.
+- `EligibilityService`, with 6 rules and readable reasons.
+- `GET /api/students/me/drives?eligibleOnly=` showing `eligible` and `reasons` per drive.
+
+**What I learned:**
+- **A pure function is the easiest thing to test.** `EligibilityService` takes everything as parameters (student, drive, now) and returns a result. Its 23 tests need no Spring, no mocks and no DB, and run in milliseconds.
+- **Collect all reasons, don't stop at the first.** A student who fails on branch, CGPA *and* backlogs should see all three at once (Karan did).
+- **`BigDecimal`: use `compareTo`, not `equals`.** `7.5` and `7.50` are not `equals` because the scales differ, but `compareTo` says they're equal. Money and grades should always be compared with `compareTo`.
+- **Boundaries are where bugs hide.** I tested CGPA exactly at the minimum (passes), backlogs exactly at the maximum (passes) and the deadline exactly now (fails). "At least" means `>=`, and "before" means strictly `<`.
+- **Security by structure:** the update DTO simply has no `cgpa` field, so there's no way to change it. The demo sent `cgpa: 9.9`, and Jackson ignored it.
+- **Show times in the user's zone, store them in UTC.** The deadline is stored as a UTC `Instant` but shown in messages as "11 Nov 2026, 3:30 PM IST". The zone ID must be `Asia/Kolkata`; the old `Asia/Calcutta` was the cause of the Milestone 1 bug.
+- **Filter before you page.** If eligibility is calculated in Java, I must filter the whole list first and *then* cut out the page. Otherwise page 2 of the "eligible only" list could be missing items or come up short. A unit test checks this.
+- **`RequestContextHolder`** lets a normal Spring bean read the current HTTP request (here, a header) without passing it through every method.
+- **A temporary design should be easy to delete:** the header logic lives in one class marked TODO. Milestone 5 swaps it out, and nothing else changes.
