@@ -9,9 +9,9 @@
 ## How to work with me (most important section)
 1. **Before each feature:** explain the plan in simple language: what we'll build, which files change, and why. Keep it short.
 2. **Boilerplate — you write it:** project setup, config, Docker, entities, DTOs, mappers, simple CRUD, React pages/styling, security config, test scaffolding.
-3. **Core logic — I write first:** database schema, `EligibilityService`, the policy engine, the apply/withdraw flow.
-   - Give me the method signatures, the rules, and hints. Let me attempt it, then review my code.
-   - If I say **"just write it"**, write it, then explain it line by line.
+3. **Claude Code writes all code, including core logic** (schema, EligibilityService,
+   policy engine, apply/withdraw flow). For core logic: explain the plan and rules
+   before writing, write unit tests for every rule, then explain the code line by line.
 4. **After each feature, always give me:**
    - A 3–5 line summary of what was built and the request flow (frontend → controller → service → repository → DB → back).
    - 2–3 interview questions about it that I should be able to answer.
