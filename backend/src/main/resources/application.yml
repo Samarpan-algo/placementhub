@@ -9,6 +9,8 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/placementhub}
     username: ${DB_USERNAME:placementhub}
     password: ${DB_PASSWORD:placementhub_dev}
+    hikari:
+      connection-timeout: 5000   # ms; fail fast when the DB is down (default is 30s)
 
   jpa:
     hibernate:
