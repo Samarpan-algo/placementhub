@@ -128,4 +128,5 @@ Each milestone lists what "done" means.
 
 ## Current status
 <!-- I'll update this line as I go -->
-Milestone: 1 (not started)
+Milestone: 2 (not started). M1 done: Docker Postgres 17, Spring Boot 4.1.2 skeleton,
+/api/health with DB check, README v0.
