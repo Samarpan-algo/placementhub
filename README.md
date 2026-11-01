@@ -51,6 +51,24 @@ If the database is unreachable, the endpoint returns HTTP **503** with `{"status
 
 To stop the database: `docker compose down`. Your data is kept in the `pgdata` volume.
 
+## Database and demo data
+
+The schema is managed by **Flyway** migrations in `backend/src/main/resources/db/migration`, which run automatically when the app starts:
+
+- `V1__init.sql`: all tables, constraints and indexes
+- `V2__seed_demo_data.sql`: demo data: 1 admin, 6 students (CSE/ECE/ME), 3 fictional companies, 5 drives, default placement policies
+
+**Demo accounts (demo only, never use in production):**
+
+| Role | Email | Password |
+|---|---|---|
+| TPO admin | `admin@placementhub.dev` | `Demo@1234` |
+| Student | `aarav.sharma@student.placementhub.dev` (and 5 others in `V2__seed_demo_data.sql`) | `Demo@1234` |
+
+> ⚠️ This password is public because it is in this README. Before deployment, the admin account must be created from environment variables (see [decisions](docs/decisions.md)).
+
+To reset the local database to a fresh seeded state: `docker compose down -v`, then `docker compose up -d`, then start the app. **This deletes all local data.**
+
 ## Configuration
 
 The backend reads `DB_URL`, `DB_USERNAME` and `DB_PASSWORD` from environment variables. If they are not set, it falls back to local dev defaults in `backend/src/main/resources/application.yml`. Those defaults **must match** `.env.example`, because Spring Boot does not read `.env` (only Docker Compose does).
