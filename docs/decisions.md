@@ -425,3 +425,104 @@ The company is a many-to-one, so JOINing it keeps one row per drive and paging s
 **Alternatives:** Repeat the rules as SQL `WHERE` conditions, so the DB filters and pages.
 
 **Why:** `EligibilityService` stays the **single source of truth**. With rules in both SQL and Java, they could drift apart, and a drive might be listed as eligible but then fail on apply. A college has tens of OPEN drives at a time, so this is cheap. **Limit:** it's fine up to a few hundred OPEN drives. Beyond that, move to SQL pre-filtering, with Java still producing the reasons.
+
+---
+
+## 27. Optional `details` array in the error JSON; 422 for "not eligible"
+**Milestone:** 4 · **Date:** 2026-11-01
+
+**Decision:**
+- `ErrorResponse` gains an optional `details: string[]`, annotated `@JsonInclude(NON_NULL)`.
+- An ineligible apply returns **422** with `message` = "You are not eligible for this drive" and `details` = every eligibility reason.
+- Duplicates and "withdrawal is final" stay **409**.
+
+**Alternatives:**
+- Join all the reasons into the `message` string.
+- A separate error format for 422.
+- Use 409 or 400 for "not eligible".
+
+**Why:**
+- Every existing error looks **exactly the same**, because the key is left out when it's null, so no client breaks. The demo confirmed that a 404 still has only the 5 keys.
+- `message` stays a single readable sentence for a toast, and `details` is an array the frontend can show as bullets without splitting strings.
+- On the status codes:
+  - 400 means "your request is malformed".
+  - 409 means "it clashes with existing state", such as a duplicate.
+  - 422 means "well-formed, but business rules about you say no". That is exactly "not eligible".
+
+---
+
+## 28. Apply: checks in a fixed order, with the DB UNIQUE constraint as the real duplicate guard
+**Milestone:** 4 · **Date:** 2026-11-01
+
+**Decision:** `ApplicationService.apply` runs these steps in order:
+
+| # | Step | Failure |
+|---|---|---|
+| 1 | Load the profile | 404 |
+| 2 | Load the drive (a `DRAFT` drive counts as missing) | 404 |
+| 3 | Look for an existing application | 409 "already applied", or "withdrawal is final" if it was withdrawn |
+| 4 | `EligibilityService` | 422 with the reasons |
+| 5 | Policy engine hook (Milestone 6) | — |
+| 6 | `saveAndFlush` | — |
+
+- If `saveAndFlush` throws a `DataIntegrityViolationException` for `uq_applications_drive_student`, it becomes the same 409. Any other constraint error is re-thrown unchanged.
+
+**Alternatives:**
+- Rely only on the "already applied?" check.
+- Use pessimistic locks.
+- Let the global handler map the constraint error.
+
+**Why:** A check-then-insert has a race: two simultaneous requests both see "no application" and both insert. Only the DB constraint is atomic, so it is the real guard, and the check exists to give a nicer message in the normal case. `saveAndFlush` forces the INSERT to happen inside the `try`, not later at commit time. Mapping it in the service makes the behaviour unit-testable: the test makes the mocked repository throw the real exception type. The global handler also knows the constraint, as a backstop. The duplicate check runs **before** eligibility, so a student who already applied isn't told "you're not eligible". `DRAFT` drives return 404 because they are unpublished, and students shouldn't learn they exist.
+
+---
+
+## 29. Another student's application returns 404, not 403
+**Milestone:** 4 · **Date:** 2026-11-01
+
+**Decision:** Students read and withdraw applications through `findByIdAndStudentId(id, myProfileId)`. A missing application and someone else's application both return **404** "Application with id X not found".
+
+**Alternatives:** Load by id, then return 403 if the owner differs.
+
+**Why:**
+- A 403 confirms the resource exists ("it's there, just not yours"). That lets anyone discover which application ids exist and roughly how many applications there are, by trying ids one by one (enumeration).
+- A student has no legitimate need to know about other students' applications, so "not found for you" is the correct answer.
+- Putting the owner into the query means the ownership check can't be forgotten in one endpoint.
+- Milestone 5 keeps this pattern; JWT only changes how "me" is found.
+
+---
+
+## 30. Withdrawal needs an OPEN drive and must happen before the registration deadline
+**Milestone:** 4 · **Date:** 2026-11-01
+
+**Decision:** A student may withdraw only when all of these are true:
+
+| Condition | Message if not |
+|---|---|
+| The application is `APPLIED` or `SHORTLISTED` | "You have already withdrawn this application", or "Cannot withdraw a SELECTED application. Only APPLIED or SHORTLISTED applications can be withdrawn" |
+| The drive is `OPEN` | "Withdrawal is not allowed: this drive is no longer open (status: CLOSED)" |
+| `now` is before the registration deadline | "Withdrawal closed on 11 Nov 2026, 3:30 PM IST (the registration deadline)" |
+
+- Withdrawal is final, so re-applying gets a 409.
+
+**Alternatives:**
+- Check only the deadline, which would let students withdraw from a drive an admin closed early.
+- Allow withdrawal at any time before the student is selected.
+
+**Why:** Once an admin closes a drive, the applicant list is being shortlisted and shared with the company. Students leaving after that would quietly change a list the TPO has already acted on. Tying withdrawal to "OPEN and before the deadline" gives one clear window that students and admins both understand. Both conditions are unit-tested, including a CLOSED drive whose deadline hasn't passed yet.
+
+---
+
+## 31. `applicationStatus` in the browse list with one batched query
+**Milestone:** 4 · **Date:** 2026-11-01
+
+**Decision:**
+- `StudentDriveResponse` gains `applicationStatus`, which is null if the student hasn't applied.
+- It's loaded with **one** JPQL query, `SELECT new DriveApplicationStatus(a.drive.id, a.status) ... WHERE a.student.id = :sid AND a.drive.id IN :driveIds`, and turned into a `Map<driveId, status>`.
+- The query is skipped when there are no OPEN drives. Browse now runs 5 queries in total, however many drives there are.
+
+**Alternatives:**
+- Look up the status per drive, which is N+1.
+- Load full `Application` entities.
+- Make it a lazy association on `Drive`.
+
+**Why:** A constructor-expression projection loads only the two columns needed, with no entities and no lazy fields. One `IN (...)` query for the whole list keeps the query count fixed, just like the branches batch.

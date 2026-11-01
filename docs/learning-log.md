@@ -101,3 +101,25 @@ Short notes, in plain words, on what I learned in each milestone.
 - **Filter before you page.** If eligibility is calculated in Java, I must filter the whole list first and *then* cut out the page. Otherwise page 2 of the "eligible only" list could be missing items or come up short. A unit test checks this.
 - **`RequestContextHolder`** lets a normal Spring bean read the current HTTP request (here, a header) without passing it through every method.
 - **A temporary design should be easy to delete:** the header logic lives in one class marked TODO. Milestone 5 swaps it out, and nothing else changes.
+
+---
+
+## Milestone 4, Session B: Apply, withdraw, my applications (2026-11-01)
+
+**What I built:**
+- `POST /api/students/me/applications` (apply), `POST .../{id}/withdraw`, `GET .../applications` and `GET .../applications/{id}`.
+- `applicationStatus` in the browse list.
+- An optional `details` array in the error JSON.
+- 27 new unit tests, and a Students folder in Postman.
+
+**What I learned:**
+- **Check-then-insert has a race condition.** Two requests can both check "no application yet" before either inserts. Only the database's `UNIQUE` constraint is atomic, so it is the real guard. My check is just for a friendlier message in the normal case.
+- **`saveAndFlush` vs `save`:** `flush` sends the INSERT to the DB *now*, so a constraint error is thrown inside my `try`, where I can turn it into a 409. Otherwise it could only appear at commit time.
+- **Testing a race without threads:** I made the mocked repository throw the same `DataIntegrityViolationException` Postgres would cause, and checked that it becomes a 409. A second test checks that a *different* constraint error isn't disguised as "already applied".
+- **404 instead of 403 for other people's data:** a 403 confirms the thing exists. Filtering by owner in the query (`findByIdAndStudentId`) makes "not yours" and "doesn't exist" look the same, and the check can't be forgotten.
+- **422 vs 409 vs 400:** 400 means a malformed request, 409 a conflict with existing state (a duplicate), and 422 a valid request that business rules reject (not eligible).
+- **Extending an API without breaking it:** `@JsonInclude(NON_NULL)` on a new optional field means old responses look exactly the same.
+- **Order of checks matters for messages:** checking "already applied" before eligibility avoids telling a student who has already applied that they're "not eligible".
+- **Constructor-expression queries** (`SELECT new ...Dto(a.drive.id, a.status)`) load only the columns I need, without entities, which is perfect for "status per drive" lookups.
+- **Leave clear hooks for later work:** a marked `POLICY ENGINE HOOK (Milestone 6)` comment shows exactly where the next feature plugs in.
+- **Making Postman runs repeatable:** because withdrawal is final, the Students folder first creates a fresh drive, so every run starts from a clean state.
