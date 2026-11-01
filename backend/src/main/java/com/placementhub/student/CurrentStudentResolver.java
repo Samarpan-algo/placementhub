@@ -6,9 +6,8 @@ import com.placementhub.common.ResourceNotFoundException;
 import com.placementhub.user.CurrentUserProvider;
 
 /**
- * Finds the profile of the student making the request. Returns an entity, so call it
- * only from inside a service's @Transactional method.
- * Stays after Milestone 5: only the CurrentUserProvider implementation changes.
+ * Finds the profile of the student making the request (user id from the JWT via CurrentUserProvider).
+ * Returns an entity, so call it only from inside a service's @Transactional method.
  */
 @Component
 public class CurrentStudentResolver {

@@ -1,22 +1,77 @@
 {
   "info": {
     "name": "PlacementHub",
-    "description": "PlacementHub API (Milestones 3-4): health, companies, drives, students.\n\nRun folders top to bottom (or use the Collection Runner): later requests use ids saved by earlier ones (companyId, driveId, studentDriveId, applicationId).\n\nNo auth yet (until Milestone 5): requests without a header act as the demo admin; the Students folder sends X-Demo-User-Id to act as seeded students ({{studentAaravId}}, {{studentPriyaId}}).\n\nNote: there is no DELETE for drives, so drives created by this collection stay in your local DB. Reset with `docker compose down -v` then `docker compose up -d` (deletes all local data).",
+    "description": "PlacementHub API (Milestones 3-5): health, auth, companies, drives, students.\n\nRun folders top to bottom (or use the Collection Runner). The Auth folder logs in and saves tokens (adminToken, aaravToken, priyaToken); later requests use them. Default auth is Bearer {{adminToken}}; student requests override it with {{aaravToken}} / {{priyaToken}}.\n\nDemo password for seeded accounts: {{demoPassword}} (demo only).\n\nNote: there is no DELETE for drives, so drives created by this collection stay in your local DB. Reset with `docker compose down -v` then `docker compose up -d` (deletes all local data).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:8080" },
-    { "key": "seedCompanyId", "value": "3", "description": "Ironbridge Engineering from the V2 seed" },
-    { "key": "seedCompanyWithDrivesId", "value": "1", "description": "Nimbus Systems (has drives)" },
-    { "key": "studentAaravId", "value": "2", "description": "User id for X-Demo-User-Id: Aarav (CSE, 8.70, 0 backlogs)" },
-    { "key": "studentPriyaId", "value": "3", "description": "User id for X-Demo-User-Id: Priya (CSE, 6.80)" },
-    { "key": "studentDriveId", "value": "" },
-    { "key": "applicationId", "value": "" },
-    { "key": "companyId", "value": "" },
-    { "key": "driveId", "value": "" },
-    { "key": "futureDeadline", "value": "" },
-    { "key": "pastDeadline", "value": "" },
-    { "key": "uniqueSuffix", "value": "" }
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "demoPassword",
+      "value": "Demo@1234",
+      "description": "Seeded demo accounts only (README)"
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "aaravToken",
+      "value": ""
+    },
+    {
+      "key": "priyaToken",
+      "value": ""
+    },
+    {
+      "key": "newStudentEmail",
+      "value": ""
+    },
+    {
+      "key": "newStudentRollNo",
+      "value": ""
+    },
+    {
+      "key": "seedCompanyId",
+      "value": "3",
+      "description": "Ironbridge Engineering from the V2 seed"
+    },
+    {
+      "key": "seedCompanyWithDrivesId",
+      "value": "1",
+      "description": "Nimbus Systems (has drives)"
+    },
+    {
+      "key": "studentDriveId",
+      "value": ""
+    },
+    {
+      "key": "applicationId",
+      "value": ""
+    },
+    {
+      "key": "companyId",
+      "value": ""
+    },
+    {
+      "key": "driveId",
+      "value": ""
+    },
+    {
+      "key": "futureDeadline",
+      "value": ""
+    },
+    {
+      "key": "pastDeadline",
+      "value": ""
+    },
+    {
+      "key": "uniqueSuffix",
+      "value": ""
+    }
   ],
   "event": [
     {
@@ -59,13 +114,457 @@
       "item": [
         {
           "name": "Health check (200)",
-          "request": { "method": "GET", "url": "{{baseUrl}}/api/health" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200 UP', () => {",
-            "  pm.response.to.have.status(200);",
-            "  pm.expect(pm.response.json()).to.eql({ status: 'UP', database: 'UP' });",
-            "});"
-          ] } }]
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 UP', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json()).to.eql({ status: 'UP', database: 'UP' });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "auth": {
+        "type": "noauth"
+      }
+    },
+    {
+      "name": "Auth",
+      "description": "Public login/register, then 401/403 checks. Saves adminToken, aaravToken, priyaToken for later folders.",
+      "auth": {
+        "type": "noauth"
+      },
+      "item": [
+        {
+          "name": "Login as seeded admin (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@placementhub.dev\",\n  \"password\": \"{{demoPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 Bearer token, role TPO_ADMIN', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.tokenType).to.eql('Bearer');",
+                  "  pm.expect(b.expiresIn).to.eql(7200);",
+                  "  pm.expect(b.role).to.eql('TPO_ADMIN');",
+                  "  pm.expect(b.accessToken.split('.')).to.have.length(3);",
+                  "});",
+                  "pm.collectionVariables.set('adminToken', pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login as Aarav (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"aarav.sharma@student.placementhub.dev\",\n  \"password\": \"{{demoPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 Bearer token, role STUDENT', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.tokenType).to.eql('Bearer');",
+                  "  pm.expect(b.expiresIn).to.eql(7200);",
+                  "  pm.expect(b.role).to.eql('STUDENT');",
+                  "  pm.expect(b.accessToken.split('.')).to.have.length(3);",
+                  "});",
+                  "pm.collectionVariables.set('aaravToken', pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login as Priya (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"priya.nair@student.placementhub.dev\",\n  \"password\": \"{{demoPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 Bearer token, role STUDENT', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.tokenType).to.eql('Bearer');",
+                  "  pm.expect(b.expiresIn).to.eql(7200);",
+                  "  pm.expect(b.role).to.eql('STUDENT');",
+                  "  pm.expect(b.accessToken.split('.')).to.have.length(3);",
+                  "});",
+                  "pm.collectionVariables.set('priyaToken', pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Login, wrong password (401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@placementhub.dev\",\n  \"password\": \"wrong-password\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 generic message', () => {",
+                  "  pm.response.to.have.status(401);",
+                  "  pm.expect(pm.response.json().message).to.eql('Invalid email or password');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Login, unknown email gets the same 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"nobody@placementhub.dev\",\n  \"password\": \"{{demoPassword}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 with the SAME message as a wrong password', () => {",
+                  "  pm.response.to.have.status(401);",
+                  "  pm.expect(pm.response.json().message).to.eql('Invalid email or password');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register new student, role in body is ignored (201)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Fresh email and roll number on EVERY run, so the collection stays repeatable",
+                  "const n = Date.now().toString();",
+                  "pm.collectionVariables.set('newStudentEmail', `postman.${n}@student.placementhub.dev`);",
+                  "pm.collectionVariables.set('newStudentRollNo', `PM${n.slice(-10)}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 profile, email lowercased, Location /api/students/me', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  pm.expect(pm.response.headers.get('Location')).to.eql('/api/students/me');",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.email).to.eql(pm.collectionVariables.get('newStudentEmail'));",
+                  "  pm.expect(b.rollNo).to.eql(pm.collectionVariables.get('newStudentRollNo'));",
+                  "  pm.expect(b).to.not.have.property('accessToken');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{newStudentEmail}}\",\n  \"password\": \"Postman@123\",\n  \"fullName\": \"Postman Student\",\n  \"rollNo\": \"{{newStudentRollNo}}\",\n  \"branch\": \"CSE\",\n  \"graduationYear\": 2027,\n  \"cgpa\": 8.25,\n  \"activeBacklogs\": 0,\n  \"phone\": \"9876500077\",\n  \"role\": \"TPO_ADMIN\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login as the new student, role is STUDENT (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{newStudentEmail}}\",\n  \"password\": \"Postman@123\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, role STUDENT even though the register body said TPO_ADMIN', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().role).to.eql('STUDENT');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Register, duplicate email (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{newStudentEmail}}\",\n  \"password\": \"Postman@123\",\n  \"fullName\": \"Postman Student\",\n  \"rollNo\": \"{{newStudentRollNo}}\",\n  \"branch\": \"CSE\",\n  \"graduationYear\": 2027,\n  \"cgpa\": 8.25,\n  \"activeBacklogs\": 0,\n  \"phone\": \"9876500077\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 email exists', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().message).to.eql('An account with this email already exists');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Register, short password (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"short.pw@student.placementhub.dev\",\n  \"password\": \"short\",\n  \"fullName\": \"Short Password\",\n  \"rollNo\": \"PMSHORT01\",\n  \"branch\": \"CSE\",\n  \"graduationYear\": 2027,\n  \"cgpa\": 8.0,\n  \"activeBacklogs\": 0\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 password size', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().message).to.include('password: size must be between 8 and 72');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR No token on an admin endpoint (401)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/companies"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Authentication required', () => {",
+                  "  pm.response.to.have.status(401);",
+                  "  pm.expect(pm.response.json().message).to.eql('Authentication required');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Garbage token (401)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/companies",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "not.a.real-token",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Invalid or expired token', () => {",
+                  "  pm.response.to.have.status(401);",
+                  "  pm.expect(pm.response.json().message).to.eql('Invalid or expired token');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Student token on an admin endpoint (403)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/companies",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => {",
+                  "  pm.response.to.have.status(403);",
+                  "  pm.expect(pm.response.json().message).to.eql('You do not have permission to access this resource');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin token on a student endpoint (403)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -76,126 +575,283 @@
           "name": "Create company (201)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/companies",
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Postman Test Co {{uniqueSuffix}}\",\n  \"website\": \"https://postman-test.example.com\",\n  \"description\": \"Created by the Postman collection\"\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Test Co {{uniqueSuffix}}\",\n  \"website\": \"https://postman-test.example.com\",\n  \"description\": \"Created by the Postman collection\"\n}"
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('201 + Location header', () => {",
-            "  pm.response.to.have.status(201);",
-            "  pm.response.to.have.header('Location');",
-            "});",
-            "pm.collectionVariables.set('companyId', pm.response.json().id);"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 + Location header', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  pm.response.to.have.header('Location');",
+                  "});",
+                  "pm.collectionVariables.set('companyId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "List companies (200, paginated)",
-          "request": { "method": "GET", "url": "{{baseUrl}}/api/companies?page=0&size=20&sort=name,asc" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200 PageResponse', () => {",
-            "  pm.response.to.have.status(200);",
-            "  pm.expect(pm.response.json()).to.have.all.keys('content', 'page', 'size', 'totalElements', 'totalPages');",
-            "});"
-          ] } }]
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/companies?page=0&size=20&sort=name,asc"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 PageResponse', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json()).to.have.all.keys('content', 'page', 'size', 'totalElements', 'totalPages');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Get company by id (200)",
-          "request": { "method": "GET", "url": "{{baseUrl}}/api/companies/{{companyId}}" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200', () => pm.response.to.have.status(200));"
-          ] } }]
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/companies/{{companyId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Update company (200)",
           "request": {
             "method": "PUT",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/companies/{{companyId}}",
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Postman Test Co {{uniqueSuffix}} (renamed)\",\n  \"website\": \"\",\n  \"description\": \"Updated\"\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Test Co {{uniqueSuffix}} (renamed)\",\n  \"website\": \"\",\n  \"description\": \"Updated\"\n}"
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200, blank website saved as null', () => {",
-            "  pm.response.to.have.status(200);",
-            "  pm.expect(pm.response.json().website).to.be.null;",
-            "});"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, blank website saved as null', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().website).to.be.null;",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Create invalid company (400)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/companies",
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"\",\n  \"website\": \"not-a-url\"\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\",\n  \"website\": \"not-a-url\"\n}"
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('400 lists bad fields', () => {",
-            "  pm.response.to.have.status(400);",
-            "  pm.expect(pm.response.json().message).to.include('name').and.to.include('website');",
-            "});"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 lists bad fields', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().message).to.include('name').and.to.include('website');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Malformed JSON (400)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/companies",
-            "body": { "mode": "raw", "raw": "{ \"name\": \"Oops\"," }
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"name\": \"Oops\","
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('400', () => pm.response.to.have.status(400));"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Get missing company (404)",
-          "request": { "method": "GET", "url": "{{baseUrl}}/api/companies/999999" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('404', () => pm.response.to.have.status(404));"
-          ] } }]
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/companies/999999"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Duplicate name, different case (409)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/companies",
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"nimbus systems\"\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"nimbus systems\"\n}"
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('409', () => pm.response.to.have.status(409));"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Delete company that has drives (409)",
-          "request": { "method": "DELETE", "url": "{{baseUrl}}/api/companies/{{seedCompanyWithDrivesId}}" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('409 mentions drives', () => {",
-            "  pm.response.to.have.status(409);",
-            "  pm.expect(pm.response.json().message).to.include('drive');",
-            "});"
-          ] } }]
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/companies/{{seedCompanyWithDrivesId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 mentions drives', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().message).to.include('drive');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Invalid id type (400)",
-          "request": { "method": "GET", "url": "{{baseUrl}}/api/companies/abc" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('400', () => pm.response.to.have.status(400));"
-          ] } }]
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/companies/abc"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Unknown sort field (400)",
-          "request": { "method": "GET", "url": "{{baseUrl}}/api/companies?sort=foo" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('400', () => pm.response.to.have.status(400));"
-          ] } }]
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/companies?sort=foo"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Delete company without drives (204)",
-          "request": { "method": "DELETE", "url": "{{baseUrl}}/api/companies/{{companyId}}" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('204', () => pm.response.to.have.status(204));"
-          ] } }]
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/companies/{{companyId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -206,490 +862,1037 @@
           "name": "Create drive (201, DRAFT)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/drives",
-            "body": { "mode": "raw", "raw": "{\n  \"companyId\": {{seedCompanyId}},\n  \"roleTitle\": \"Postman Backend Intern\",\n  \"jobType\": \"INTERNSHIP\",\n  \"ctcLpa\": 4.80,\n  \"location\": \"Remote\",\n  \"minCgpa\": 7.0,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\"CSE\", \"IT\"]\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyId\": {{seedCompanyId}},\n  \"roleTitle\": \"Postman Backend Intern\",\n  \"jobType\": \"INTERNSHIP\",\n  \"ctcLpa\": 4.80,\n  \"location\": \"Remote\",\n  \"minCgpa\": 7.0,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\"CSE\", \"IT\"]\n}"
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('201 DRAFT with company name and sorted branches', () => {",
-            "  pm.response.to.have.status(201);",
-            "  pm.response.to.have.header('Location');",
-            "  const d = pm.response.json();",
-            "  pm.expect(d.status).to.eql('DRAFT');",
-            "  pm.expect(d.companyName).to.be.a('string');",
-            "  pm.expect(d.branches).to.eql(['CSE', 'IT']);",
-            "});",
-            "pm.collectionVariables.set('driveId', pm.response.json().id);"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 DRAFT with company name and sorted branches', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  pm.response.to.have.header('Location');",
+                  "  const d = pm.response.json();",
+                  "  pm.expect(d.status).to.eql('DRAFT');",
+                  "  pm.expect(d.companyName).to.be.a('string');",
+                  "  pm.expect(d.branches).to.eql(['CSE', 'IT']);",
+                  "});",
+                  "pm.collectionVariables.set('driveId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Create drive, unknown company (404)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/drives",
-            "body": { "mode": "raw", "raw": "{\n  \"companyId\": 999999,\n  \"roleTitle\": \"Ghost Role\",\n  \"jobType\": \"FULL_TIME\",\n  \"ctcLpa\": 5.00,\n  \"minCgpa\": 6.0,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\"CSE\"]\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyId\": 999999,\n  \"roleTitle\": \"Ghost Role\",\n  \"jobType\": \"FULL_TIME\",\n  \"ctcLpa\": 5.00,\n  \"minCgpa\": 6.0,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\"CSE\"]\n}"
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('404 Company with id 999999 not found', () => {",
-            "  pm.response.to.have.status(404);",
-            "  pm.expect(pm.response.json().message).to.eql('Company with id 999999 not found');",
-            "});"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Company with id 999999 not found', () => {",
+                  "  pm.response.to.have.status(404);",
+                  "  pm.expect(pm.response.json().message).to.eql('Company with id 999999 not found');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Create drive, invalid fields (400)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/drives",
-            "body": { "mode": "raw", "raw": "{\n  \"companyId\": {{seedCompanyId}},\n  \"roleTitle\": \"\",\n  \"jobType\": \"FULL_TIME\",\n  \"ctcLpa\": 0,\n  \"minCgpa\": 11,\n  \"maxBacklogs\": -1,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\"CSE\"]\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyId\": {{seedCompanyId}},\n  \"roleTitle\": \"\",\n  \"jobType\": \"FULL_TIME\",\n  \"ctcLpa\": 0,\n  \"minCgpa\": 11,\n  \"maxBacklogs\": -1,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\"CSE\"]\n}"
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('400 lists bad fields', () => {",
-            "  pm.response.to.have.status(400);",
-            "  const m = pm.response.json().message;",
-            "  ['ctcLpa', 'maxBacklogs', 'minCgpa', 'roleTitle'].forEach(f => pm.expect(m).to.include(f));",
-            "});"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 lists bad fields', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  const m = pm.response.json().message;",
+                  "  ['ctcLpa', 'maxBacklogs', 'minCgpa', 'roleTitle'].forEach(f => pm.expect(m).to.include(f));",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "List drives (200)",
-          "request": { "method": "GET", "url": "{{baseUrl}}/api/drives?page=0&size=20" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200', () => pm.response.to.have.status(200));"
-          ] } }]
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives?page=0&size=20"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "List drives filtered: OPEN for company 2 (200)",
-          "request": { "method": "GET", "url": "{{baseUrl}}/api/drives?status=OPEN&companyId=2" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200, every result matches the filters', () => {",
-            "  pm.response.to.have.status(200);",
-            "  pm.response.json().content.forEach(d => {",
-            "    pm.expect(d.status).to.eql('OPEN');",
-            "    pm.expect(d.companyId).to.eql(2);",
-            "  });",
-            "});"
-          ] } }]
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives?status=OPEN&companyId=2"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, every result matches the filters', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.response.json().content.forEach(d => {",
+                  "    pm.expect(d.status).to.eql('OPEN');",
+                  "    pm.expect(d.companyId).to.eql(2);",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR List drives, unknown status (400)",
-          "request": { "method": "GET", "url": "{{baseUrl}}/api/drives?status=BOGUS" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('400', () => pm.response.to.have.status(400));"
-          ] } }]
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives?status=BOGUS"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Get drive by id (200)",
-          "request": { "method": "GET", "url": "{{baseUrl}}/api/drives/{{driveId}}" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200', () => pm.response.to.have.status(200));"
-          ] } }]
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives/{{driveId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Get missing drive (404)",
-          "request": { "method": "GET", "url": "{{baseUrl}}/api/drives/999999" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('404', () => pm.response.to.have.status(404));"
-          ] } }]
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives/999999"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Update DRAFT drive (200)",
           "request": {
             "method": "PUT",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/drives/{{driveId}}",
-            "body": { "mode": "raw", "raw": "{\n  \"roleTitle\": \"Postman Backend Intern (edited)\",\n  \"jobType\": \"INTERNSHIP\",\n  \"ctcLpa\": 5.20,\n  \"location\": \"Bengaluru\",\n  \"minCgpa\": 7.5,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\"CSE\", \"IT\", \"ECE\"]\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleTitle\": \"Postman Backend Intern (edited)\",\n  \"jobType\": \"INTERNSHIP\",\n  \"ctcLpa\": 5.20,\n  \"location\": \"Bengaluru\",\n  \"minCgpa\": 7.5,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\"CSE\", \"IT\", \"ECE\"]\n}"
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200 edited', () => {",
-            "  pm.response.to.have.status(200);",
-            "  pm.expect(pm.response.json().roleTitle).to.include('(edited)');",
-            "});"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 edited', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().roleTitle).to.include('(edited)');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Complete a DRAFT drive (409)",
-          "request": { "method": "POST", "url": "{{baseUrl}}/api/drives/{{driveId}}/complete" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('409 DRAFT -> COMPLETED not allowed', () => {",
-            "  pm.response.to.have.status(409);",
-            "  pm.expect(pm.response.json().message).to.include('Allowed: DRAFT → OPEN');",
-            "});"
-          ] } }]
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{driveId}}/complete"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 DRAFT -> COMPLETED not allowed', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().message).to.include('Allowed: DRAFT → OPEN');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Open drive (200)",
-          "request": { "method": "POST", "url": "{{baseUrl}}/api/drives/{{driveId}}/open" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200 OPEN', () => {",
-            "  pm.response.to.have.status(200);",
-            "  pm.expect(pm.response.json().status).to.eql('OPEN');",
-            "});"
-          ] } }]
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{driveId}}/open"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OPEN', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().status).to.eql('OPEN');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Open again (409)",
-          "request": { "method": "POST", "url": "{{baseUrl}}/api/drives/{{driveId}}/open" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('409', () => pm.response.to.have.status(409));"
-          ] } }]
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{driveId}}/open"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Update OPEN drive with past deadline (409)",
           "request": {
             "method": "PUT",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/drives/{{driveId}}",
-            "body": { "mode": "raw", "raw": "{\n  \"roleTitle\": \"Postman Backend Intern\",\n  \"jobType\": \"INTERNSHIP\",\n  \"ctcLpa\": 5.20,\n  \"minCgpa\": 7.5,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{pastDeadline}}\",\n  \"branches\": [\"CSE\"]\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleTitle\": \"Postman Backend Intern\",\n  \"jobType\": \"INTERNSHIP\",\n  \"ctcLpa\": 5.20,\n  \"minCgpa\": 7.5,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{pastDeadline}}\",\n  \"branches\": [\"CSE\"]\n}"
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('409 OPEN drive must keep a future deadline', () => {",
-            "  pm.response.to.have.status(409);",
-            "  pm.expect(pm.response.json().message).to.include('Cannot save OPEN drive');",
-            "});"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 OPEN drive must keep a future deadline', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().message).to.include('Cannot save OPEN drive');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Close drive (200)",
-          "request": { "method": "POST", "url": "{{baseUrl}}/api/drives/{{driveId}}/close" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200 CLOSED', () => {",
-            "  pm.response.to.have.status(200);",
-            "  pm.expect(pm.response.json().status).to.eql('CLOSED');",
-            "});"
-          ] } }]
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{driveId}}/close"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 CLOSED', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().status).to.eql('CLOSED');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Update CLOSED drive (409)",
           "request": {
             "method": "PUT",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/drives/{{driveId}}",
-            "body": { "mode": "raw", "raw": "{\n  \"roleTitle\": \"Too late\",\n  \"jobType\": \"INTERNSHIP\",\n  \"ctcLpa\": 5.20,\n  \"minCgpa\": 7.5,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\"CSE\"]\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleTitle\": \"Too late\",\n  \"jobType\": \"INTERNSHIP\",\n  \"ctcLpa\": 5.20,\n  \"minCgpa\": 7.5,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\"CSE\"]\n}"
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('409 only DRAFT or OPEN can be edited', () => {",
-            "  pm.response.to.have.status(409);",
-            "  pm.expect(pm.response.json().message).to.include('Only DRAFT or OPEN');",
-            "});"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 only DRAFT or OPEN can be edited', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().message).to.include('Only DRAFT or OPEN');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Complete drive (200)",
-          "request": { "method": "POST", "url": "{{baseUrl}}/api/drives/{{driveId}}/complete" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200 COMPLETED', () => {",
-            "  pm.response.to.have.status(200);",
-            "  pm.expect(pm.response.json().status).to.eql('COMPLETED');",
-            "});"
-          ] } }]
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{driveId}}/complete"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 COMPLETED', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().status).to.eql('COMPLETED');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Re-open a COMPLETED drive (409)",
-          "request": { "method": "POST", "url": "{{baseUrl}}/api/drives/{{driveId}}/open" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('409 COMPLETED is final', () => {",
-            "  pm.response.to.have.status(409);",
-            "  pm.expect(pm.response.json().message).to.include('COMPLETED is final');",
-            "});"
-          ] } }]
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{driveId}}/open"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 COMPLETED is final', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().message).to.include('COMPLETED is final');",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
       "name": "Students",
-      "description": "Acts as seeded students via the X-Demo-User-Id header (temporary until Milestone 5). Starts by creating and opening a fresh drive as the admin, so every run is repeatable (withdrawal is final).",
+      "description": "Acts as seeded students with their JWTs ({{aaravToken}}, {{priyaToken}} from the Auth folder). Starts by creating and opening a fresh drive as the admin, so every run is repeatable (withdrawal is final).",
       "item": [
         {
           "name": "Setup (admin): create drive for student tests (201)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/api/drives",
-            "body": { "mode": "raw", "raw": "{\n  \"companyId\": {{seedCompanyId}},\n  \"roleTitle\": \"Postman Student Flow {{uniqueSuffix}}\",\n  \"jobType\": \"FULL_TIME\",\n  \"ctcLpa\": 8.00,\n  \"minCgpa\": 7.0,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\"CSE\"]\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyId\": {{seedCompanyId}},\n  \"roleTitle\": \"Postman Student Flow {{uniqueSuffix}}\",\n  \"jobType\": \"FULL_TIME\",\n  \"ctcLpa\": 8.00,\n  \"minCgpa\": 7.0,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\"CSE\"]\n}"
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('201', () => pm.response.to.have.status(201));",
-            "pm.collectionVariables.set('studentDriveId', pm.response.json().id);"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('studentDriveId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Setup (admin): open that drive (200)",
-          "request": { "method": "POST", "url": "{{baseUrl}}/api/drives/{{studentDriveId}}/open" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200 OPEN', () => pm.expect(pm.response.json().status).to.eql('OPEN'));"
-          ] } }]
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{studentDriveId}}/open"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OPEN', () => pm.expect(pm.response.json().status).to.eql('OPEN'));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Aarav: get my profile (200)",
           "request": {
             "method": "GET",
-            "header": [{ "key": "X-Demo-User-Id", "value": "{{studentAaravId}}" }],
-            "url": "{{baseUrl}}/api/students/me"
+            "url": "{{baseUrl}}/api/students/me",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200 Aarav', () => {",
-            "  pm.response.to.have.status(200);",
-            "  pm.expect(pm.response.json().rollNo).to.eql('23CSE001');",
-            "});"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 Aarav', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().rollNo).to.eql('23CSE001');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Aarav: update profile, cgpa in body is ignored (200)",
           "request": {
             "method": "PUT",
             "header": [
-              { "key": "X-Demo-User-Id", "value": "{{studentAaravId}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "url": "{{baseUrl}}/api/students/me",
-            "body": { "mode": "raw", "raw": "{\n  \"fullName\": \"Aarav Sharma\",\n  \"phone\": \"9876500001\",\n  \"cgpa\": 9.99\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Aarav Sharma\",\n  \"phone\": \"9876500001\",\n  \"cgpa\": 9.99\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200, CGPA unchanged', () => {",
-            "  pm.response.to.have.status(200);",
-            "  pm.expect(pm.response.json().cgpa).to.eql(8.70);",
-            "});"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, CGPA unchanged', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().cgpa).to.eql(8.70);",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Aarav: browse drives, eligible only (200)",
           "request": {
             "method": "GET",
-            "header": [{ "key": "X-Demo-User-Id", "value": "{{studentAaravId}}" }],
-            "url": "{{baseUrl}}/api/students/me/drives?eligibleOnly=true"
+            "url": "{{baseUrl}}/api/students/me/drives?eligibleOnly=true",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200, every item eligible, new drive listed with applicationStatus null', () => {",
-            "  pm.response.to.have.status(200);",
-            "  const items = pm.response.json().content;",
-            "  items.forEach(i => pm.expect(i.eligible).to.be.true);",
-            "  const mine = items.find(i => i.drive.id === Number(pm.collectionVariables.get('studentDriveId')));",
-            "  pm.expect(mine, 'new drive in list').to.exist;",
-            "  pm.expect(mine.applicationStatus).to.be.null;",
-            "});"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, every item eligible, new drive listed with applicationStatus null', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const items = pm.response.json().content;",
+                  "  items.forEach(i => pm.expect(i.eligible).to.be.true);",
+                  "  const mine = items.find(i => i.drive.id === Number(pm.collectionVariables.get('studentDriveId')));",
+                  "  pm.expect(mine, 'new drive in list').to.exist;",
+                  "  pm.expect(mine.applicationStatus).to.be.null;",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Aarav: apply (201)",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "X-Demo-User-Id", "value": "{{studentAaravId}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "url": "{{baseUrl}}/api/students/me/applications",
-            "body": { "mode": "raw", "raw": "{\n  \"driveId\": {{studentDriveId}}\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driveId\": {{studentDriveId}}\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('201 APPLIED + Location', () => {",
-            "  pm.response.to.have.status(201);",
-            "  pm.response.to.have.header('Location');",
-            "  pm.expect(pm.response.json().status).to.eql('APPLIED');",
-            "});",
-            "pm.collectionVariables.set('applicationId', pm.response.json().id);"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 APPLIED + Location', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  pm.response.to.have.header('Location');",
+                  "  pm.expect(pm.response.json().status).to.eql('APPLIED');",
+                  "});",
+                  "pm.collectionVariables.set('applicationId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Aarav: apply again (409)",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "X-Demo-User-Id", "value": "{{studentAaravId}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "url": "{{baseUrl}}/api/students/me/applications",
-            "body": { "mode": "raw", "raw": "{\n  \"driveId\": {{studentDriveId}}\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driveId\": {{studentDriveId}}\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('409 already applied', () => {",
-            "  pm.response.to.have.status(409);",
-            "  pm.expect(pm.response.json().message).to.eql('You have already applied to this drive');",
-            "});"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 already applied', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().message).to.eql('You have already applied to this drive');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Aarav: browse shows applicationStatus APPLIED (200)",
           "request": {
             "method": "GET",
-            "header": [{ "key": "X-Demo-User-Id", "value": "{{studentAaravId}}" }],
-            "url": "{{baseUrl}}/api/students/me/drives"
+            "url": "{{baseUrl}}/api/students/me/drives",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('applicationStatus APPLIED on the new drive', () => {",
-            "  const mine = pm.response.json().content.find(i => i.drive.id === Number(pm.collectionVariables.get('studentDriveId')));",
-            "  pm.expect(mine.applicationStatus).to.eql('APPLIED');",
-            "});"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('applicationStatus APPLIED on the new drive', () => {",
+                  "  const mine = pm.response.json().content.find(i => i.drive.id === Number(pm.collectionVariables.get('studentDriveId')));",
+                  "  pm.expect(mine.applicationStatus).to.eql('APPLIED');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Aarav: list my applications (200)",
           "request": {
             "method": "GET",
-            "header": [{ "key": "X-Demo-User-Id", "value": "{{studentAaravId}}" }],
-            "url": "{{baseUrl}}/api/students/me/applications?page=0&size=20"
+            "url": "{{baseUrl}}/api/students/me/applications?page=0&size=20",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200, contains the new application', () => {",
-            "  pm.response.to.have.status(200);",
-            "  const ids = pm.response.json().content.map(a => a.id);",
-            "  pm.expect(ids).to.include(Number(pm.collectionVariables.get('applicationId')));",
-            "});"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, contains the new application', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const ids = pm.response.json().content.map(a => a.id);",
+                  "  pm.expect(ids).to.include(Number(pm.collectionVariables.get('applicationId')));",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Aarav: get my application by id (200)",
           "request": {
             "method": "GET",
-            "header": [{ "key": "X-Demo-User-Id", "value": "{{studentAaravId}}" }],
-            "url": "{{baseUrl}}/api/students/me/applications/{{applicationId}}"
+            "url": "{{baseUrl}}/api/students/me/applications/{{applicationId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200', () => pm.response.to.have.status(200));"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Priya: apply, not eligible (422 with details)",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "X-Demo-User-Id", "value": "{{studentPriyaId}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "url": "{{baseUrl}}/api/students/me/applications",
-            "body": { "mode": "raw", "raw": "{\n  \"driveId\": {{studentDriveId}}\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driveId\": {{studentDriveId}}\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{priyaToken}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('422 with the CGPA reason in details', () => {",
-            "  pm.response.to.have.status(422);",
-            "  const b = pm.response.json();",
-            "  pm.expect(b.message).to.eql('You are not eligible for this drive');",
-            "  pm.expect(b.details).to.include('Minimum CGPA is 7.00; yours is 6.80');",
-            "});"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422 with the CGPA reason in details', () => {",
+                  "  pm.response.to.have.status(422);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.message).to.eql('You are not eligible for this drive');",
+                  "  pm.expect(b.details).to.include('Minimum CGPA is 7.00; yours is 6.80');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Priya: get Aarav's application (404, not 403)",
           "request": {
             "method": "GET",
-            "header": [{ "key": "X-Demo-User-Id", "value": "{{studentPriyaId}}" }],
-            "url": "{{baseUrl}}/api/students/me/applications/{{applicationId}}"
+            "url": "{{baseUrl}}/api/students/me/applications/{{applicationId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{priyaToken}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('404', () => pm.response.to.have.status(404));"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Priya: withdraw Aarav's application (404, not 403)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "X-Demo-User-Id", "value": "{{studentPriyaId}}" }],
-            "url": "{{baseUrl}}/api/students/me/applications/{{applicationId}}/withdraw"
+            "url": "{{baseUrl}}/api/students/me/applications/{{applicationId}}/withdraw",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{priyaToken}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('404', () => pm.response.to.have.status(404));"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Aarav: apply to a DRAFT drive (404)",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "X-Demo-User-Id", "value": "{{studentAaravId}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "url": "{{baseUrl}}/api/students/me/applications",
-            "body": { "mode": "raw", "raw": "{\n  \"driveId\": 1\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driveId\": 1\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('404 (seed drive #1 is DRAFT)', () => pm.response.to.have.status(404));"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 (seed drive #1 is DRAFT)', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Aarav: apply to a missing drive (404)",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "X-Demo-User-Id", "value": "{{studentAaravId}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "url": "{{baseUrl}}/api/students/me/applications",
-            "body": { "mode": "raw", "raw": "{\n  \"driveId\": 999999\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driveId\": 999999\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('404', () => pm.response.to.have.status(404));"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Aarav: withdraw (200)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "X-Demo-User-Id", "value": "{{studentAaravId}}" }],
-            "url": "{{baseUrl}}/api/students/me/applications/{{applicationId}}/withdraw"
+            "url": "{{baseUrl}}/api/students/me/applications/{{applicationId}}/withdraw",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('200 WITHDRAWN', () => {",
-            "  pm.response.to.have.status(200);",
-            "  pm.expect(pm.response.json().status).to.eql('WITHDRAWN');",
-            "});"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 WITHDRAWN', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().status).to.eql('WITHDRAWN');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Aarav: withdraw again (409)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "X-Demo-User-Id", "value": "{{studentAaravId}}" }],
-            "url": "{{baseUrl}}/api/students/me/applications/{{applicationId}}/withdraw"
+            "url": "{{baseUrl}}/api/students/me/applications/{{applicationId}}/withdraw",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('409 already withdrawn', () => {",
-            "  pm.response.to.have.status(409);",
-            "  pm.expect(pm.response.json().message).to.eql('You have already withdrawn this application');",
-            "});"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 already withdrawn', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().message).to.eql('You have already withdrawn this application');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "ERR Aarav: re-apply after withdrawing (409, final)",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "X-Demo-User-Id", "value": "{{studentAaravId}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "url": "{{baseUrl}}/api/students/me/applications",
-            "body": { "mode": "raw", "raw": "{\n  \"driveId\": {{studentDriveId}}\n}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driveId\": {{studentDriveId}}\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
           },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('409 withdrawal is final', () => {",
-            "  pm.response.to.have.status(409);",
-            "  pm.expect(pm.response.json().message).to.eql('You withdrew from this drive; withdrawal is final');",
-            "});"
-          ] } }]
-        },
-        {
-          "name": "ERR Admin (no header): /me has no profile (404)",
-          "request": { "method": "GET", "url": "{{baseUrl}}/api/students/me" },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('404 Student profile not found', () => {",
-            "  pm.response.to.have.status(404);",
-            "  pm.expect(pm.response.json().message).to.eql('Student profile not found');",
-            "});"
-          ] } }]
-        },
-        {
-          "name": "ERR Bad X-Demo-User-Id header (400)",
-          "request": {
-            "method": "GET",
-            "header": [{ "key": "X-Demo-User-Id", "value": "abc" }],
-            "url": "{{baseUrl}}/api/students/me"
-          },
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "pm.test('400', () => pm.response.to.have.status(400));"
-          ] } }]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 withdrawal is final', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().message).to.eql('You withdrew from this drive; withdrawal is final');",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     }
-  ]
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{adminToken}}",
+        "type": "string"
+      }
+    ]
+  }
 }

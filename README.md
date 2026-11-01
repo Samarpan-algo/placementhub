@@ -37,6 +37,9 @@ docker compose up -d
 docker compose ps
 
 # 3. Start the backend
+#    Optional locally: set a JWT signing secret (at least 32 bytes). Without it the app uses a
+#    DEV-ONLY secret and logs a WARNING at startup. Always set it outside your own machine.
+$env:JWT_SECRET = "paste-a-random-secret-of-at-least-32-bytes-here"
 cd backend
 .\mvnw.cmd spring-boot:run
 ```
@@ -69,9 +72,43 @@ The schema is managed by **Flyway** migrations in `backend/src/main/resources/db
 
 To reset the local database to a fresh seeded state: `docker compose down -v`, then `docker compose up -d`, then start the app. **This deletes all local data.**
 
+## Authentication
+
+The API uses stateless **JWT** bearer tokens (HS256, valid for 2 hours).
+
+| Endpoint | Who |
+|---|---|
+| `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/health` | public |
+| `/api/students/me/**` | `STUDENT` |
+| `/api/companies/**`, `/api/drives/**` | `TPO_ADMIN` |
+
+- **Students** register themselves with `POST /api/auth/register`. Their academic details are self-reported at registration and read-only afterwards.
+- **TPO admin accounts** can't be registered. The demo admin comes from the seed data.
+
+```powershell
+# Log in and keep the token
+$login = Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/auth/login `
+  -ContentType "application/json" -Body '{"email":"admin@placementhub.dev","password":"Demo@1234"}'
+
+# Call a protected endpoint
+Invoke-RestMethod -Uri http://localhost:8080/api/companies -Headers @{ Authorization = "Bearer $($login.accessToken)" }
+```
+
+Errors use the standard error JSON:
+- **401**: no token, or an invalid or expired token.
+- **403**: the wrong role for this endpoint.
+
+The Postman collection (`postman/`) logs in automatically: run the **Auth** folder first.
+
 ## Configuration
 
-The backend reads `DB_URL`, `DB_USERNAME` and `DB_PASSWORD` from environment variables. If they are not set, it falls back to local dev defaults in `backend/src/main/resources/application.yml`. Those defaults **must match** `.env.example`, because Spring Boot does not read `.env` (only Docker Compose does).
+The backend reads these environment variables:
+
+| Variable | Default if not set |
+|---|---|
+| `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | local dev values in `backend/src/main/resources/application.yml`. These **must match** `.env.example`, because Spring Boot does not read `.env` (only Docker Compose does). |
+| `JWT_SECRET` | a dev-only secret, with a startup **WARNING**. It **must** be set in production, and it must be at least 32 bytes or the app refuses to start. |
+| `JWT_EXPIRY` | `PT2H` (2 hours) |
 
 ## Docs
 
