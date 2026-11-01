@@ -23,6 +23,7 @@
    - Before every commit, check that `.env` and other secrets are not staged.
    - Never merge into `main` or push to GitHub without asking me first.
    - After committing, show me `git log --oneline` for the new commits.
+   - Do not add Co-Authored-By, Claude-Session, or any other AI attribution trailers to commit messages.
 6. **Never:** commit secrets (use env vars plus `.env.example`), add technologies outside the stack below, or expand scope without asking me.
 7. **When I'm stuck on an error:** help me read the error and form a hypothesis first, then fix it.
 8. Keep explanations simple and practical. No long theory dumps.
