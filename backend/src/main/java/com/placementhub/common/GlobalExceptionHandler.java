@@ -1,10 +1,10 @@
 package com.placementhub.common;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import org.hibernate.exception.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -23,8 +23,8 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
- * Turns every exception into the same JSON shape: {timestamp, status, error, message, path}.
- * Stack traces are logged on the server, never sent to the client.
+ * Turns every exception into the same JSON shape: {timestamp, status, error, message, path},
+ * plus an optional "details" array (422). Stack traces are logged on the server, never sent to the client.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -34,7 +34,8 @@ public class GlobalExceptionHandler {
 	/** Friendly messages for DB constraints that can be hit by API requests. */
 	private static final Map<String, String> CONSTRAINT_MESSAGES = Map.of(
 			"uq_companies_name", "A company with this name already exists",
-			"fk_drives_company", "This company still has drives and cannot be deleted");
+			"fk_drives_company", "This company still has drives and cannot be deleted",
+			"uq_applications_drive_student", "You have already applied to this drive");
 
 	// ---------- 400 ----------
 
@@ -52,6 +53,11 @@ public class GlobalExceptionHandler {
 	public ResponseEntity<ErrorResponse> handleMalformedJson(HttpMessageNotReadableException ex,
 			HttpServletRequest request) {
 		return build(HttpStatus.BAD_REQUEST, "Malformed JSON request body", request);
+	}
+
+	@ExceptionHandler(BadRequestException.class)
+	public ResponseEntity<ErrorResponse> handleBadRequest(BadRequestException ex, HttpServletRequest request) {
+		return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
 	}
 
 	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
@@ -97,10 +103,18 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(DataIntegrityViolationException.class)
 	public ResponseEntity<ErrorResponse> handleDataIntegrity(DataIntegrityViolationException ex,
 			HttpServletRequest request) {
-		String constraint = constraintName(ex);
+		String constraint = ConstraintViolations.constraintName(ex);
 		log.warn("Constraint violation on {} {}: {}", request.getMethod(), request.getRequestURI(), constraint);
 		String message = CONSTRAINT_MESSAGES.getOrDefault(constraint, "The request conflicts with existing data");
 		return build(HttpStatus.CONFLICT, message, request);
+	}
+
+	// ---------- 422 ----------
+
+	@ExceptionHandler(UnprocessableEntityException.class)
+	public ResponseEntity<ErrorResponse> handleUnprocessable(UnprocessableEntityException ex,
+			HttpServletRequest request) {
+		return build(HttpStatus.UNPROCESSABLE_CONTENT, ex.getMessage(), ex.getDetails(), request);
 	}
 
 	// ---------- 500 ----------
@@ -114,23 +128,18 @@ public class GlobalExceptionHandler {
 	// ---------- helpers ----------
 
 	private static ResponseEntity<ErrorResponse> build(HttpStatus status, String message, HttpServletRequest request) {
+		return build(status, message, null, request);
+	}
+
+	private static ResponseEntity<ErrorResponse> build(HttpStatus status, String message, List<String> details,
+			HttpServletRequest request) {
 		ErrorResponse body = new ErrorResponse(Instant.now(), status.value(), status.getReasonPhrase(), message,
-				request.getRequestURI());
+				details, request.getRequestURI());
 		return ResponseEntity.status(status).body(body);
 	}
 
 	private static String formatFieldError(FieldError error) {
 		return error.getField() + ": " + error.getDefaultMessage();
-	}
-
-	/** Walks the cause chain to find Hibernate's constraint name (e.g. "uq_companies_name"). */
-	private static String constraintName(Throwable ex) {
-		for (Throwable t = ex; t != null; t = t.getCause()) {
-			if (t instanceof ConstraintViolationException cve && cve.getConstraintName() != null) {
-				return cve.getConstraintName();
-			}
-		}
-		return null;
 	}
 
 }

@@ -1,5 +1,7 @@
 package com.placementhub.drive;
 
+import java.util.List;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -10,6 +12,10 @@ import org.springframework.data.repository.query.Param;
 public interface DriveRepository extends JpaRepository<Drive, Long> {
 
 	long countByCompanyId(Long companyId);
+
+	/** All drives in one status with their company JOINed; branches are batch-loaded (@BatchSize). */
+	@EntityGraph(attributePaths = "company")
+	List<Drive> findByStatusOrderByRegistrationDeadlineAsc(DriveStatus status);
 
 	/**
 	 * Paginated list with optional filters: a null parameter means "don't filter on this".

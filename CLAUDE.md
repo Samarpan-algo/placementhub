@@ -17,7 +17,12 @@
    - 2–3 interview questions about it that I should be able to answer.
    - Append a short entry to `docs/learning-log.md` (what I learned, in plain words).
    - Record any significant design choice in `docs/decisions.md` (decision, alternatives, why).
-5. **Git:** small commits after each working step, conventional messages (`feat:`, `fix:`, `test:`, `docs:`, `chore:`). One branch per milestone, merged to `main` when done.
+5. **Git — Claude Code handles commits:**
+   - Commit in small steps after each verified, working step, with conventional messages (`feat:`, `fix:`, `test:`, `docs:`, `chore:`).
+   - Always work on the milestone branch (one per milestone); never commit directly to `main`.
+   - Before every commit, check that `.env` and other secrets are not staged.
+   - Never merge into `main` or push to GitHub without asking me first.
+   - After committing, show me `git log --oneline` for the new commits.
 6. **Never:** commit secrets (use env vars plus `.env.example`), add technologies outside the stack below, or expand scope without asking me.
 7. **When I'm stuck on an error:** help me read the error and form a hypothesis first, then fix it.
 8. Keep explanations simple and practical. No long theory dumps.
@@ -132,8 +137,11 @@ Each milestone lists what "done" means.
 
 ## Current status
 <!-- I'll update this line as I go -->
-Milestone: 4 (not started). M1 done: Docker Postgres 17, Spring Boot 4.1.2 skeleton,
+Milestone: 5 (not started). M1 done: Docker Postgres 17, Spring Boot 4.1.2 skeleton,
 /api/health with DB check, README v0. M2 done: Flyway V1 schema (10 tables, CHECKs,
 FK indexes, INELIGIBLE + status_reason) and V2 demo seed (1 admin, 6 students, 3 companies, 5 drives, policies).
 M3 done: entities (ddl-auto validate), global error handler, PageResponse, Companies + Drives CRUD
 with status transitions, N+1-safe list, CurrentUserProvider (demo admin, TODO M5), 28 unit tests, Postman collection.
+M4 done: student profile (name/phone only), EligibilityService (6 rules, all reasons), browse with eligible/reasons/
+applicationStatus, apply (422 + details, race-safe 409) / withdraw (OPEN + before deadline, owner-only 404),
+X-Demo-User-Id header (TODO M5), 84 unit tests, Postman 76/76.
