@@ -17,7 +17,12 @@
    - 2–3 interview questions about it that I should be able to answer.
    - Append a short entry to `docs/learning-log.md` (what I learned, in plain words).
    - Record any significant design choice in `docs/decisions.md` (decision, alternatives, why).
-5. **Git:** small commits after each working step, conventional messages (`feat:`, `fix:`, `test:`, `docs:`, `chore:`). One branch per milestone, merged to `main` when done.
+5. **Git — Claude Code handles commits:**
+   - Commit in small steps after each verified, working step, with conventional messages (`feat:`, `fix:`, `test:`, `docs:`, `chore:`).
+   - Always work on the milestone branch (one per milestone); never commit directly to `main`.
+   - Before every commit, check that `.env` and other secrets are not staged.
+   - Never merge into `main` or push to GitHub without asking me first.
+   - After committing, show me `git log --oneline` for the new commits.
 6. **Never:** commit secrets (use env vars plus `.env.example`), add technologies outside the stack below, or expand scope without asking me.
 7. **When I'm stuck on an error:** help me read the error and form a hypothesis first, then fix it.
 8. Keep explanations simple and practical. No long theory dumps.
