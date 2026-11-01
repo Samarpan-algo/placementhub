@@ -179,3 +179,91 @@ Each entry records what we decided, what else we considered, and why.
 **Why:** A migration gives every fresh database the same realistic data, which makes eligibility demos interesting from day one. Natural-key joins keep the script independent of identity values. Relative deadlines keep OPEN drives open whenever the DB is recreated.
 
 **⚠️ Before deployment (Milestone 12):** the demo password is public (it's in the README). The production admin must be created from **environment variables** (for example `ADMIN_EMAIL` and `ADMIN_PASSWORD`, hashed at startup), and the demo seed must not run in production. One way is to move it to a separate Flyway location that only the dev profile enables.
+
+---
+
+## 13. `ddl-auto: validate` with hand-written entities
+**Milestone:** 3 · **Date:** 2026-11-01
+
+**Decision:**
+- Switch `spring.jpa.hibernate.ddl-auto` from `none` to `validate`.
+- Entities use `Short` for `SMALLINT` columns, `BigDecimal` for `NUMERIC`, `Instant` for `TIMESTAMPTZ`, `LocalDate` for `DATE`, and `@Enumerated(STRING)` for enums.
+- `drive_branches` is mapped as an `@ElementCollection` of the `Branch` enum on `Drive`.
+
+**Alternatives:**
+- Keep `none`.
+- Use `Integer` for `SMALLINT`.
+- Map `drive_branches` as a separate `@Entity`.
+
+**Why:** `validate` makes Hibernate compare entities with the Flyway schema at startup and refuse to start on a mismatch (a missing column, a wrong type), without ever changing the schema. It catches mapping bugs on day one instead of on the first query. `Integer` against `SMALLINT` fails validation, so the entity uses `Short` and DTOs convert. Branches have no identity of their own, so an element collection is simpler than a separate entity.
+
+---
+
+## 14. One global exception handler, with the DB as a backstop for conflicts
+**Milestone:** 3 · **Date:** 2026-11-01
+
+**Decision:**
+- A single `@RestControllerAdvice` returns `{timestamp, status, error, message, path}` for every error:
+
+| Status | Cases |
+|---|---|
+| 400 | validation, malformed JSON, wrong parameter type, unknown sort field |
+| 404 | not found, unknown URL |
+| 405 | wrong method |
+| 409 | `ConflictException`, plus DB constraint violations mapped from the constraint name to a friendly message |
+| 500 | everything else: generic message, stack trace logged on the server only |
+
+- Services check business conflicts first (duplicate name, company has drives). The DB constraint is the backstop for race conditions.
+
+**Alternatives:**
+- Per-controller `try/catch`.
+- Spring's default error JSON or `ProblemDetail`.
+- Relying only on DB constraints.
+
+**Why:** Clients (the React frontend, Postman) can rely on a single error shape. Service checks give the clearest messages, and the DB constraint guarantees correctness when two requests race. Without the extra 400/404/405 handlers, the catch-all would wrongly report client mistakes as 500s.
+
+---
+
+## 15. `PageResponse<T>` and capped page sizes
+**Milestone:** 3 · **Date:** 2026-11-01
+
+**Decision:**
+- Lists return `PageResponse<T>(content, page, size, totalElements, totalPages)`.
+- Page size defaults to 20 and is capped at 100 (`spring.data.web.pageable.*`).
+- Pages are 0-based, and a size larger than 100 is quietly capped.
+
+**Alternatives:**
+- Return Spring's `Page` directly.
+- Use custom `page`/`size` parameters.
+
+**Why:** Spring's `Page` JSON is an internal structure that can change between versions, and Spring Data itself warns against serialising it. Our own record is a stable API contract for the frontend. The cap stops a client from asking for 1 million rows.
+
+---
+
+## 16. Known limitation: company name uniqueness is case-insensitive only in the service
+**Milestone:** 3 · **Date:** 2026-11-01
+
+**Decision:**
+- `CompanyService` rejects duplicate names ignoring case (`existsByNameIgnoreCase`).
+- The DB constraint `uq_companies_name` is case-sensitive.
+- We are **not** adding a `lower(name)` unique index for now.
+
+**Alternatives:** A `V3` migration that replaces the constraint with `CREATE UNIQUE INDEX ... ON companies (lower(name))`.
+
+**Why:** Only TPO admins create companies, so concurrency is very low. Two simultaneous creates of "Acme" and "acme" are the only way to get past the check, and that is unlikely. In a 10-parallel-request test, the service check caught all 9 duplicates. Revisit this if more roles can create companies.
+
+---
+
+## 17. Entity → DTO mapping happens inside `@Transactional` service methods
+**Milestone:** 3 · **Date:** 2026-11-01
+
+**Decision:**
+- Services return DTOs, never entities.
+- Hand-written `@Component` mappers (for example `CompanyMapper`) also trim input and turn blank strings into `null`.
+
+**Alternatives:**
+- Map in controllers.
+- Turn `open-in-view` back on.
+- Use MapStruct.
+
+**Why:** With `open-in-view: false` and LAZY relationships (Drive → Company), touching a lazy field after the transaction ends throws `LazyInitializationException`. Mapping inside the transaction makes that impossible, and it keeps entities out of the web layer. MapStruct isn't in our stack, and hand-written mappers are easy to read and explain.

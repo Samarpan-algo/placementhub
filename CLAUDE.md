@@ -68,6 +68,9 @@ Chat, video interviews, recruiter role (v2), a full college ERP, microservices, 
 - Package-by-feature: `auth`, `user`, `student`, `company`, `drive`, `application`, `round`, `policy`, `audit`, `stats`, `common`, `config`
 - Each feature is layered: Controller → Service → Repository. Business rules live in services only.
 - Request/response DTOs; never return entities from controllers.
+- Map entities to DTOs inside the service's `@Transactional` methods, so controllers only ever receive DTOs.
+  With `open-in-view: false` and LAZY relationships (e.g. Drive → Company), mapping outside the
+  transaction throws `LazyInitializationException`.
 - One global exception handler with a consistent error JSON: `{timestamp, status, error, message, path}`
 - Flyway migrations in `src/main/resources/db/migration`
 

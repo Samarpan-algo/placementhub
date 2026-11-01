@@ -36,3 +36,24 @@ Short notes, in plain words, on what I learned in each milestone.
 - **`INELIGIBLE` vs `REJECTED`:** "the rules changed after you applied" and "the company said no" are different stories, so they get different statuses, plus a `status_reason`.
 - **BCrypt** hashes include the cost and a random salt (`$2a$10$<salt><hash>`). The same password gives a different hash each time, and you check it with `checkpw`, not by comparing strings.
 - **Testing constraints safely:** `BEGIN; ...; ROLLBACK;` in psql lets me try bad inserts without changing any data.
+
+---
+
+## Milestone 3, Session A: Entities, error handling, pagination, Companies CRUD (2026-11-01)
+
+**What I built:**
+- JPA entities for `users`, `companies` and `drives` (with `drive_branches` as an element collection).
+- One global error handler.
+- A `PageResponse<T>` wrapper.
+- A full Companies CRUD API at `/api/companies`.
+
+**What I learned:**
+- **`ddl-auto: validate`:** Hibernate checks my entities against the real tables at startup and won't start if they don't match. `Integer` vs `SMALLINT` fails, so I use `Short`.
+- **`@ElementCollection`** stores a simple list (here `Set<Branch>`) in its own table without needing a separate entity class.
+- **LAZY loading + `open-in-view: false`:** a lazy field can only be loaded while the transaction is open. That's why the service maps entities to DTOs before returning. Otherwise I'd get `LazyInitializationException`.
+- **`@RestControllerAdvice`** catches exceptions from every controller in one place. Every error gets the same JSON shape, and a 500 never leaks a stack trace. It's logged on the server instead.
+- **Check first, constraint as backstop:** the service checks "name already exists?" for a nice message. The DB UNIQUE constraint still protects me when two requests race. I read the constraint name from the exception to give a friendly 409.
+- **201 + `Location` header** is the REST convention for "created". It tells the client the URL of the new resource. Delete returns **204 No Content**.
+- **`@Valid` + Bean Validation** (`@NotBlank`, `@Size`, `@URL`) rejects bad input before my service even runs. The handler lists every bad field in one message.
+- **Pagination:** `Pageable` reads `?page=0&size=20&sort=name`. I wrap the `Page` in my own `PageResponse` record so the JSON shape is stable. Page size is capped at 100.
+- **Testing a race:** I sent 10 identical creates at once with `HttpClient`. 1 was created and 9 got 409, so duplicates were never saved.
