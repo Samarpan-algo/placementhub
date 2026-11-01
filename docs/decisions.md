@@ -316,7 +316,7 @@ The company is a many-to-one, so JOINing it keeps one row per drive and paging s
 ---
 
 ## 20. `CurrentUserProvider` interface with a temporary demo-admin implementation
-**Milestone:** 3 · **Date:** 2026-11-01
+**Milestone:** 3 · **Date:** 2026-11-01 · **Implementation superseded by [24](#24-temporary-identity-via-the-x-demo-user-id-header) and then [33](#33-jwtcurrentuserprovider-replaces-the-demo-header). The interface itself stays.**
 
 **Decision:**
 - Services ask `CurrentUserProvider.currentUserId()` who is calling.
@@ -374,7 +374,7 @@ The company is a many-to-one, so JOINing it keeps one row per drive and paging s
 ---
 
 ## 24. Temporary identity via the `X-Demo-User-Id` header
-**Milestone:** 4 · **Date:** 2026-11-01
+**Milestone:** 4 · **Date:** 2026-11-01 · **Superseded by [33](#33-jwtcurrentuserprovider-replaces-the-demo-header) in Milestone 5. The header code has been deleted.**
 
 **Decision:** `DemoHeaderCurrentUserProvider` replaces `DemoAdminCurrentUserProvider`:
 
@@ -526,3 +526,141 @@ The company is a many-to-one, so JOINing it keeps one row per drive and paging s
 - Make it a lazy association on `Drive`.
 
 **Why:** A constructor-expression projection loads only the two columns needed, with no entities and no lazy fields. One `IN (...)` query for the whole list keeps the query count fixed, just like the branches batch.
+
+---
+
+## 32. Stateless JWT with Spring Security's OAuth2 Resource Server (HS256), no custom filter
+**Milestone:** 5 · **Date:** 2026-11-01
+
+**Decision:**
+- Tokens are issued with Spring's `JwtEncoder` and validated on every request by Spring's built-in bearer-token filter with `JwtDecoder`. Both are `NimbusJwtEncoder`/`NimbusJwtDecoder` built with `withSecretKey(...)`, using HS256.
+- **Claims:**
+  - `sub` = user id (as a string);
+  - `role`, which a `JwtAuthenticationConverter` maps to `ROLE_STUDENT` or `ROLE_TPO_ADMIN`;
+  - `email`, `iss = placementhub`, `iat` and `exp`.
+- **Expiry:** 2 hours (`JWT_EXPIRY`, default `PT2H`).
+- **Sessions:** stateless, with CSRF, HTTP Basic, form login and logout turned off.
+- **Errors:** custom `AuthenticationEntryPoint` (401) and `AccessDeniedHandler` (403) write our standard error JSON. Spring's defaults return empty bodies.
+
+**Alternatives:**
+- A hand-written `OncePerRequestFilter` that parses tokens.
+- A third-party JWT library (jjwt, auth0).
+- Server-side sessions.
+- RS256 key pairs.
+
+**Why:**
+- **Spring's filter instead of our own:** it already does extraction, signature, `exp`/`nbf` with clock skew, issuer checks, and creating the `Authentication`. A custom filter would re-implement reviewed security code, and its classic bugs (forgetting expiry, accepting `alg: none`, comparing signatures in a non-constant-time way) are how JWT systems get broken. We call only Spring's API; Spring Security uses Nimbus internally, and there's no extra dependency in our `pom`.
+- **HS256:** one service both issues and checks tokens, so a shared secret is simplest. RS256 would matter only if *other* services had to verify tokens without being able to issue them.
+- **2-hour expiry:** there are no refresh tokens in v1, and a stateless JWT can't be revoked, so expiry is the only limit on a stolen token. 2 hours covers a realistic work session. 15 minutes would log users out all the time without refresh tokens, and 24 hours makes a leak last too long.
+- **CSRF off:** CSRF works because browsers automatically attach cookies to cross-site requests. Our token travels in the `Authorization` header, which browsers never attach automatically, and there's no session cookie, so a forged request carries no credentials. **If we ever store the token in a cookie, CSRF protection must come back.**
+
+**Tests:** 51 MockMvc access-matrix tests (11 endpoints × no token, bad token, wrong role, right role, plus edge cases) run through the real `SecurityConfig` with real tokens.
+
+---
+
+## 33. `JwtCurrentUserProvider` replaces the demo header
+**Milestone:** 5 · **Date:** 2026-11-01
+
+**Decision:**
+- `JwtCurrentUserProvider` reads the user id from the verified token's `sub` claim.
+- `DemoHeaderCurrentUserProvider` and `BadRequestException` (used only by it) are deleted, and `X-Demo-User-Id` no longer appears in the code, tests or Postman collection.
+
+**Alternatives:** Keep the header as a "dev mode" switch.
+
+**Why:** Any way to pick your identity with a header is a back door. Because services only depend on `CurrentUserProvider` and `CurrentStudentResolver` (decision 20), the swap touched **no** service or service test. That's the payoff of programming to an interface.
+
+---
+
+## 34. Login uses Spring's `AuthenticationManager` + `DaoAuthenticationProvider`
+**Milestone:** 5 · **Date:** 2026-11-01
+
+**Decision:**
+- `POST /api/auth/login` calls `AuthenticationManager.authenticate(...)`. A `DaoAuthenticationProvider` loads the user by email through `AuthUserDetailsService` and checks the BCrypt hash (cost 10, which matches the seed).
+- A wrong password and an unknown email both become `BadCredentialsException` → **401 "Invalid email or password"**.
+
+**Alternatives:** A hand-written `findByEmail` + `passwordEncoder.matches`.
+
+**Why:** Spring already handles two subtle points:
+- it hides "user not found" behind the same exception as a wrong password;
+- for unknown emails it still runs a **dummy BCrypt check**, so the response time doesn't reveal which emails exist.
+
+A naive `if (user == null) return 401` returns noticeably faster for unknown emails. The identical messages were verified live.
+
+---
+
+## 35. Student self-registration: STUDENT only, one transaction, normalised identifiers
+**Milestone:** 5 · **Date:** 2026-11-01
+
+**Decision:**
+- `POST /api/auth/register` creates the `users` row (role **always** `STUDENT`) and the `student_profiles` row in one `@Transactional`.
+- The request's compact constructor normalises input **before validation**: the email is trimmed and lowercased, and the roll number trimmed and uppercased.
+- Duplicate email or roll number → 409, checked first, with the `uq_users_email` and `uq_student_profiles_roll_no` constraints mapped to the same 409s for races.
+- Passwords must be 8–72 characters. BCrypt ignores everything after 72 bytes, so longer passwords are rejected rather than silently cut.
+- The response is 201 with the profile and **no token**: the student logs in next.
+
+**Alternatives:**
+- An invite-only flow.
+- Accepting `role` in the request and checking it.
+- Returning a token on register.
+
+**Why:**
+- **No `role` field:** with no such field in `RegisterRequest`, `"role": "TPO_ADMIN"` is simply ignored, which was verified live. TPO admins come only from the seed now, and from env vars at deployment.
+- **One transaction:** a user can't end up without a profile.
+- **No token on register:** login stays the only way to get a token.
+
+**Known limitation:** academic fields (CGPA, backlogs, branch, batch) are **self-reported** at registration and read-only afterwards. TPO verification of academic data is v2.
+
+---
+
+## 36. JWT secret from `JWT_SECRET`, with a dev-only fallback and a loud warning
+**Milestone:** 5 · **Date:** 2026-11-01
+
+**Decision:**
+- `app.jwt.secret: ${JWT_SECRET:}`.
+- If it's empty, `JwtConfig` uses a hard-coded **DEV-ONLY** secret and logs a multi-line WARNING at startup.
+- Any secret shorter than **32 bytes (256 bits)** stops the app at startup.
+- `.env.example` documents `JWT_SECRET`, with how to generate one (`openssl rand -base64 48`).
+
+**Alternatives:**
+- No default, so the app always refuses to start without a secret.
+- Generate a random secret at every startup.
+
+**Why:** A default keeps `mvnw spring-boot:run` working out of the box for local development. The WARNING makes it impossible to miss. A random-per-start secret would log everyone out on every restart and break when there's more than one instance.
+
+**⚠️ Before deployment (Milestone 12):** set a real random `JWT_SECRET` in the hosting platform's environment, and consider making the dev fallback fail outside a `dev` profile. Anyone who reads the source code can forge tokens with the dev secret.
+
+---
+
+## 37. Known limitation: register's 409 reveals which emails have accounts
+**Milestone:** 5 · **Date:** 2026-11-01
+
+**Decision:** Register returns **409 "An account with this email already exists"**. Login deliberately hides whether an email exists.
+
+**Alternatives:**
+- Always answer register with a generic "check your email" message.
+- Email verification links.
+
+**Why:** It's a common trade-off: a clear message helps real students who already registered. It does allow **account enumeration**, because someone can find out whether an email is registered by trying to register it. **The proper fix is email verification (v2):** always respond "we've sent you an email", and send either a verification link or a "you already have an account" email.
+
+---
+
+## 38. Known limitation: no rate limiting on login
+**Milestone:** 5 · **Date:** 2026-11-01
+
+**Decision:** `POST /api/auth/login` has no rate limit or account lockout in v1.
+
+**Alternatives:**
+- Per-IP or per-account throttling (for example a token bucket).
+- Lockout after N failures.
+- A rate-limiting proxy in front of the app.
+
+**Why:** It's out of scope for v1. BCrypt at cost 10 makes each guess cost the server real CPU time (tens of milliseconds), which slows brute force but doesn't stop it. **Real rate limiting is v2.**
+
+---
+
+## 39. Other known authentication limitations (v1)
+**Milestone:** 5 · **Date:** 2026-11-01
+
+- **No logout or revocation:** logging out means the client discards its token. A stolen token stays valid until it expires, which is why expiry is 2 hours. Refresh tokens and revocation lists are v2.
+- **No password change or reset** (v2, needs email).
+- **A token issued before a user is deleted stays valid until expiry.** Services still return 404 for a missing profile.

@@ -123,3 +123,28 @@ Short notes, in plain words, on what I learned in each milestone.
 - **Constructor-expression queries** (`SELECT new ...Dto(a.drive.id, a.status)`) load only the columns I need, without entities, which is perfect for "status per drive" lookups.
 - **Leave clear hooks for later work:** a marked `POLICY ENGINE HOOK (Milestone 6)` comment shows exactly where the next feature plugs in.
 - **Making Postman runs repeatable:** because withdrawal is final, the Students folder first creates a fresh drive, so every run starts from a clean state.
+
+---
+
+## Milestone 5, Session A: Authentication with JWT (2026-11-01)
+
+**What I built:**
+- Spring Security with stateless JWT (HS256).
+- `POST /api/auth/register` (students only) and `POST /api/auth/login`.
+- Role rules: `STUDENT` → `/api/students/me/**`; `TPO_ADMIN` → companies and drives.
+- JSON 401/403 responses.
+- `JwtCurrentUserProvider` replacing the demo header.
+- 68 new tests (152 in total), and Postman switched to tokens (61/61).
+
+**What I learned:**
+- **A JWT is signed, not encrypted.** Anyone can base64-decode the payload and read `sub`, `role` and `email`, so a token must never hold secrets. The signature means nobody can *change* it: when I edited the payload to say `TPO_ADMIN`, the server answered 401.
+- **The request flow:** login → the server signs a token → the client sends `Authorization: Bearer <token>` every time → Spring's filter checks the signature, `exp` and `iss` → the `role` claim becomes `ROLE_…` → the URL rules decide 401, 403 or allowed → my code reads the user id from `sub`.
+- **401 vs 403:** 401 means "I don't know who you are" (no token, or a bad one). 403 means "I know who you are, but you're not allowed".
+- **Use the framework's security code:** Spring's bearer-token filter and `DaoAuthenticationProvider` handle subtle things I'd probably get wrong, like constant-time comparisons, a dummy hash for unknown emails, and expiry with clock skew.
+- **Why CSRF can be off:** CSRF relies on the browser sending cookies by itself. A header token is never sent automatically.
+- **Stateless means no logout.** The server keeps nothing, so a token stays valid until it expires. That's why the expiry is short (2 hours).
+- **Same error for "unknown email" and "wrong password"** stops attackers from finding real accounts through login. But register's 409 still reveals them, which is a known trade-off.
+- **BCrypt's 72-byte limit:** anything longer is silently ignored, so I cap passwords at 72 characters.
+- **Normalise input in the record's compact constructor**, so it happens *before* validation (`" A@B.com "` → `"a@b.com"`).
+- **Read errors before fixing:** the 401 bodies looked empty in PowerShell, but `curl -i` showed `Content-Length: 142`. The problem was the client, not my code.
+- **Programming to an interface paid off:** swapping the header for JWT changed one class, and no service or service test changed.
