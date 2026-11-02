@@ -1202,3 +1202,65 @@ A 401 from `/api/auth/login` means a wrong email or password, so the login page 
 - Return a map of field → message (a second error shape).
 
 **Why:** additive, so the existing tests and Postman checks on `message` still pass, and every error the UI shows comes through one shape. The register form checks the same rules first, so a student normally sees errors under each field before anything is sent. `details[]` covers what the client can't check (it's also the safety net if the two drift apart).
+
+---
+
+## 67. Student drive detail: visible if OPEN, or if the student applied to it
+**Milestone:** 9 · **Date:** 2026-11-02
+
+**Decision:** `GET /api/students/me/drives/{id}` returns the same shape as one browse item (`drive`, `eligible`, `reasons`, `applicationStatus`), built by the same code as browse. The drive is returned if it is OPEN, **or** if the student has an application to it in any status. Everything else (a DRAFT drive, a CLOSED/COMPLETED drive they never applied to, a missing id) is the same 404 `"Drive with id N not found"`. A non-OPEN drive is never eligible, because the EligibilityService "not open" rule adds that reason, so Apply never appears for it.
+
+**Alternatives:**
+- Load the browse list in the frontend and pick the drive out of it (no new endpoint, but it's wasteful, breaks past 100 drives, and has no data for closed drives).
+- Only OPEN drives (then "View drive" links from My applications break as soon as a drive closes).
+- Any drive except DRAFT (shows students drives they never had anything to do with).
+
+**Why:** a student needs the drive behind each of their applications, even after it closes, and nothing else. One 404 for "missing" and "not yours to see" doesn't reveal which ids exist (the same idea as the application 404 in decision #29). Drives never go back to DRAFT and apply needs OPEN, so a DRAFT drive can't have an application.
+
+---
+
+## 68. A "200 that isn't our JSON" is an error (the blank-page bug)
+**Milestone:** 9 · **Date:** 2026-11-02
+
+**Decision:** `useApi` treats a response whose body isn't a JSON object or array as an error ("Unexpected answer from the server… restart npm run dev so the /api proxy is active"). `toApiError` gives the same message for a 404 that has no error JSON. Pages show their fields only once data has loaded; a failed load shows the error with "Try again", never empty values.
+
+**Real cause of the bug:** during a branch switch the Vite dev server lost its `/api` proxy, so Vite answered the request itself (a 404, not the backend). The old home page didn't handle that case, and the student saw an empty page instead of an error.
+
+**Alternatives:**
+- Check `Content-Type` in the global axios interceptor (would also hit the CSV download and 204 responses that admin pages will need).
+- Fix only the home page (the same thing would happen on every new page).
+
+**Why:** one check, in the one hook every page uses to load data, covers both ways the dev server can answer instead of the backend: its own 404, or its `index.html` with 200.
+
+---
+
+## 69. `driveStatus` on application responses; the frontend mirrors the withdraw rule only to show the button
+**Milestone:** 9 · **Date:** 2026-11-02
+
+**Decision:** `ApplicationResponse` and `ApplicationDetailResponse` include `driveStatus`. The frontend shows Withdraw only when the status is APPLIED/SHORTLISTED, `driveStatus` is OPEN and the deadline is still in the future (`utils/applications.js`), and asks for confirmation that withdrawal is final. The backend still checks all of it, and a 409 (e.g. the deadline passed while the page was open) is shown as the error.
+
+**Alternatives:** check only status and deadline, and let the 409 handle closed drives (a button that always fails for some rows).
+
+**Why:** one extra field, and the UI never offers an action it knows will fail. The frontend copy of the rule is for display only, so if the two ever drift apart, the backend's answer wins.
+
+---
+
+## 70. Dashboard counts come from the first 100 applications (known limitation)
+**Milestone:** 9 · **Date:** 2026-11-02
+
+**Decision:** the student dashboard loads `GET /api/students/me/applications?size=100` (the backend's maximum page size) and counts statuses in the browser. If a student had more than 100 applications, the page says the counts cover only the 100 most recent.
+
+**Alternatives:** a `GET /api/students/me/applications/counts` endpoint with a `GROUP BY status` query.
+
+**Why:** a student applies to tens of drives per season at most, so one request already covers everything, with no new backend code. A counts endpoint is the fix if that ever changes.
+
+---
+
+## 71. List page number and filters live in the URL
+**Milestone:** 9 · **Date:** 2026-11-02
+
+**Decision:** the drives and applications lists read `?page=` (counted from 1 in the URL, from 0 for the API) and `?eligibleOnly=true` from the URL with `useSearchParams`, and change the URL instead of keeping that state in the component. Toggling "Eligible only" goes back to page 1.
+
+**Alternatives:** `useState` for the page and the toggle.
+
+**Why:** Back, Refresh and coming back from a drive detail page all keep your place, and `useApi` reloads automatically because the URL it fetches changes.

@@ -1,6 +1,6 @@
 # PlacementHub
 
-> Status: backend v1 features done (Milestones 1–7). Frontend started (Milestone 8): login, student registration, role-based routing. Student and admin pages next (Milestone 9).
+> Status: backend v1 features done (Milestones 1–7). Frontend (Milestones 8–9): login, student registration, role-based routing, and all student pages (dashboard, drives with eligibility and apply, my applications with withdraw and round tracking, profile). Admin pages next (Milestone 9, Session B).
 
 ## Problem
 
@@ -125,6 +125,19 @@ The Postman collection (`postman/`) logs in automatically: run the **Auth** fold
 | `PUT /api/drives/{id}` | Editing an OPEN drive's criteria re-checks every pending application; the response says how many became `INELIGIBLE` |
 | `GET /api/audit?entityType=&entityId=&from=&to=` | The audit log, newest first (who, what, old → new, when) |
 | `GET /api/stats` | Total and placed students, placement % (overall and per branch), offers per company, highest/average/median CTC, drives by status |
+
+## Student pages (Milestone 9)
+
+| Page | URL | API |
+|---|---|---|
+| Dashboard | `/student` | `GET /api/students/me`, `GET /api/students/me/applications?size=100` |
+| Open drives | `/student/drives?eligibleOnly=true&page=2` | `GET /api/students/me/drives` |
+| Drive detail + Apply | `/student/drives/{id}` | `GET /api/students/me/drives/{id}` (OPEN drives, or ones you applied to), `POST /api/students/me/applications` |
+| My applications + Withdraw | `/student/applications` | `GET /api/students/me/applications`, `POST .../applications/{id}/withdraw` |
+| Application detail (rounds) | `/student/applications/{id}` | `GET /api/students/me/applications/{id}` |
+| Profile | `/student/profile` | `GET` / `PUT /api/students/me` (name and phone only) |
+
+All times are shown in IST.
 
 Rounds, results and final selection: see `POST /api/drives/{id}/rounds`, `PUT .../rounds/{roundId}/results` and `POST /api/drives/{id}/selections` (decisions 47–49).
 

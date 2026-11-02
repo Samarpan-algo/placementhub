@@ -244,3 +244,23 @@ Short notes, in plain words, on what I learned in each milestone.
 - **The proxy makes CORS disappear in dev:** the browser only ever talks to `localhost:5173`. CORS is a browser rule, so curl and Postman never needed it. Preflight `OPTIONS` requests never carry a token, so CORS has to run before Spring Security's authentication.
 - **Not every 401 means "session expired".** A wrong password is also a 401, so the global handler skips `/api/auth/*` and requests sent without a token.
 - **Windows gotcha:** stopping `mvnw spring-boot:run` can leave its Java child process running and still holding the port.
+
+---
+
+## Milestone 9, Session A: Shared building blocks and student pages (2026-11-02)
+
+**What I built:**
+- Backend: `GET /api/students/me/drives/{id}`. It returns an OPEN drive, or any drive I applied to; everything else is the same 404. `driveStatus` added to my application responses. 19 new tests (459 in total), and Postman 251/251.
+- Shared frontend pieces: a `useApi` hook (`{data, loading, error, reload}`), `Loading`, `EmptyState`, `ErrorAlert` with "Try again", `StatusBadge`, `Pagination`, `ConfirmDialog`, IST date formatting, and a nav bar per role.
+- Student pages: dashboard (profile summary and counts by status), drives (Eligible-only toggle, every reason, pagination), drive detail with Apply, my applications with Withdraw, application detail with rounds, profile (only name and phone editable).
+
+**What I learned:**
+- **A custom hook is just a function that uses hooks.** `useApi` holds the `useEffect` + `ignore` pattern from M8 once, so every page loads data in one line.
+- **`reload()` without new code paths:** bumping a counter that is in the effect's dependency list makes the effect run again.
+- **The URL can be state.** `useSearchParams` reads and writes `?page=2&eligibleOnly=true`. Back and Refresh keep my place, and `useApi` reloads by itself because its URL changed.
+- **`useParams`** reads `:id` from the route, always as a string.
+- **`<dialog>` + `useRef`:** the browser already has modals. A ref gives me the real element, so I can call `showModal()`. Handling the `cancel` event keeps React state in control of Escape.
+- **`key` resets a component:** `<ApplySection key={drive.id}>` gets fresh state (no old success message) when I open another drive.
+- **Show only what is real:** render fields only after data has loaded, and show an error otherwise. The blank-page bug came from Vite answering `/api` itself after a branch switch, when its proxy was lost. A 404 or HTML that isn't our JSON is now an error with a hint.
+- **The frontend mirrors rules for display only.** Withdraw shows only when the backend would allow it, but the backend still decides (409).
+- **Times:** the API sends UTC; `Intl.DateTimeFormat` with `timeZone: 'Asia/Kolkata'` shows IST. A date-only value like `2026-11-22` must be formatted in UTC, or it could move to another day.
