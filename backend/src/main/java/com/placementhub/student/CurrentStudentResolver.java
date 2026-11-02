@@ -26,4 +26,10 @@ public class CurrentStudentResolver {
 				.orElseThrow(() -> new ResourceNotFoundException("Student profile not found"));
 	}
 
+	/** Same, but locks the student's row until the transaction ends (see StudentProfileRepository). */
+	public StudentProfile requireProfileForUpdate() {
+		return studentProfileRepository.findByUserIdForUpdate(currentUserProvider.currentUserId())
+				.orElseThrow(() -> new ResourceNotFoundException("Student profile not found"));
+	}
+
 }

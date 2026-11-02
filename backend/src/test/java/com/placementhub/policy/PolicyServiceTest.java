@@ -5,6 +5,8 @@ import static com.placementhub.policy.PolicyFixtures.maxOffers;
 import static com.placementhub.policy.PolicyFixtures.oneOffer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -15,13 +17,20 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import com.placementhub.audit.AuditAction;
+import com.placementhub.audit.AuditEntityType;
+import com.placementhub.audit.AuditService;
 
 import com.placementhub.common.BadRequestException;
 import com.placementhub.common.ConflictException;
@@ -43,6 +52,8 @@ class PolicyServiceTest {
 	private UserRepository userRepository;
 	@Mock
 	private CurrentUserProvider currentUserProvider;
+	@Mock
+	private AuditService auditService;
 
 	private PolicyService service;
 	private final User admin = new User("admin@placementhub.dev", "hash", Role.TPO_ADMIN);
@@ -55,7 +66,7 @@ class PolicyServiceTest {
 	@BeforeEach
 	void setUp() {
 		service = new PolicyService(policyRepository, userRepository, currentUserProvider, new PolicyMapper(),
-				Clock.fixed(NOW, ZoneOffset.UTC));
+				auditService, Clock.fixed(NOW, ZoneOffset.UTC));
 		one = oneOffer(false);
 		dream = dreamOffer(true, "10.00");
 		max = maxOffers(false, 2);
@@ -196,6 +207,67 @@ class PolicyServiceTest {
 	}
 
 	// =====================================================================
+	// audit (POLICY_CHANGED)
+	// =====================================================================
+
+	@Nested
+	class Audit {
+
+		@BeforeEach
+		void ids() {
+			ReflectionTestUtils.setField(dream, "id", 2L);
+			ReflectionTestUtils.setField(max, "id", 3L);
+		}
+
+		@Test
+		@SuppressWarnings({ "unchecked", "rawtypes" })
+		void aChangeIsAuditedWithOldAndNewSettings() {
+			lockedRowsAndCurrentAdmin();
+
+			service.update(PolicyType.DREAM_OFFER, new PolicyUpdateRequest(true, new BigDecimal("12"), null));
+
+			ArgumentCaptor<Map<String, Object>> oldValue = (ArgumentCaptor) ArgumentCaptor.forClass(Map.class);
+			ArgumentCaptor<Map<String, Object>> newValue = (ArgumentCaptor) ArgumentCaptor.forClass(Map.class);
+			verify(auditService).record(eq(AuditEntityType.POLICY), eq(2L), eq(AuditAction.POLICY_CHANGED),
+					oldValue.capture(), newValue.capture());
+			assertThat(oldValue.getValue()).containsEntry("type", "DREAM_OFFER").containsEntry("active", true)
+					.containsEntry("ctcThresholdLpa", new BigDecimal("10.00")).containsEntry("maxOffers", null);
+			assertThat(newValue.getValue()).containsEntry("ctcThresholdLpa", new BigDecimal("12.00"));
+		}
+
+		@Test
+		void activatingIsAudited() {
+			lockedRowsAndCurrentAdmin();
+
+			service.update(PolicyType.MAX_OFFERS, new PolicyUpdateRequest(true, null, 2));
+
+			verify(auditService).record(eq(AuditEntityType.POLICY), eq(3L), eq(AuditAction.POLICY_CHANGED),
+					any(), any());
+		}
+
+		@Test
+		void aPutThatChangesNothingWritesNoAuditRow() {
+			lockedRowsAndCurrentAdmin();
+
+			// "10" and the stored "10.00" are the same threshold
+			service.update(PolicyType.DREAM_OFFER, new PolicyUpdateRequest(true, new BigDecimal("10"), null));
+
+			verifyNoInteractions(auditService);
+			assertThat(dream.getUpdatedAt()).isEqualTo(NOW); // who saved last is still recorded
+		}
+
+		@Test
+		void aRejectedActivationWritesNoAuditRow() {
+			when(policyRepository.findAllForUpdate()).thenReturn(List.of(one, dream, max));
+
+			assertThatThrownBy(() -> service.update(PolicyType.ONE_OFFER, new PolicyUpdateRequest(true, null, null)))
+					.isInstanceOf(ConflictException.class);
+			verifyNoInteractions(auditService);
+		}
+
+	}
+
+	// =====================================================================
 	// per-type settings (400): nothing is read or written
 	// =====================================================================
 
@@ -242,7 +314,7 @@ class PolicyServiceTest {
 			assertThatThrownBy(() -> service.update(type, request))
 					.isInstanceOf(BadRequestException.class)
 					.hasMessage(message);
-			verifyNoInteractions(policyRepository, userRepository);
+			verifyNoInteractions(policyRepository, userRepository, auditService);
 		}
 
 	}

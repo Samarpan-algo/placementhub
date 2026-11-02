@@ -25,7 +25,8 @@ import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * Turns every exception into the same JSON shape: {timestamp, status, error, message, path},
- * plus an optional "details" array (422). Stack traces are logged on the server, never sent to the client.
+ * plus an optional "details" array (422, and 400/409 for batches).
+ * Stack traces are logged on the server, never sent to the client.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -38,7 +39,9 @@ public class GlobalExceptionHandler {
 			"fk_drives_company", "This company still has drives and cannot be deleted",
 			"uq_applications_drive_student", "You have already applied to this drive",
 			"uq_users_email", "An account with this email already exists",
-			"uq_student_profiles_roll_no", "This roll number is already registered");
+			"uq_student_profiles_roll_no", "This roll number is already registered",
+			"uq_drive_rounds_drive_round_no", "This round number already exists for this drive",
+			"uq_round_results_round_application", "This result was just saved by another request; please retry");
 
 	// ---------- 400 ----------
 
@@ -67,7 +70,7 @@ public class GlobalExceptionHandler {
 
 	@ExceptionHandler(BadRequestException.class)
 	public ResponseEntity<ErrorResponse> handleBadRequest(BadRequestException ex, HttpServletRequest request) {
-		return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
+		return build(HttpStatus.BAD_REQUEST, ex.getMessage(), ex.getDetails(), request);
 	}
 
 	@ExceptionHandler(PropertyReferenceException.class)
@@ -107,7 +110,7 @@ public class GlobalExceptionHandler {
 
 	@ExceptionHandler(ConflictException.class)
 	public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex, HttpServletRequest request) {
-		return build(HttpStatus.CONFLICT, ex.getMessage(), request);
+		return build(HttpStatus.CONFLICT, ex.getMessage(), ex.getDetails(), request);
 	}
 
 	/** Backstop for races the service checks can't see (e.g. two identical creates at once). */

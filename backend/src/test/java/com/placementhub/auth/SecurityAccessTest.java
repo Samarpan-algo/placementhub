@@ -34,13 +34,19 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import com.placementhub.application.ApplicantService;
 import com.placementhub.application.ApplicationService;
+import com.placementhub.application.SelectionService;
+import com.placementhub.audit.AuditQueryService;
 import com.placementhub.company.CompanyService;
 import com.placementhub.config.JwtConfig;
 import com.placementhub.config.JwtProperties;
 import com.placementhub.config.SecurityConfig;
 import com.placementhub.drive.DriveService;
 import com.placementhub.policy.PolicyService;
+import com.placementhub.round.RoundResultService;
+import com.placementhub.round.RoundService;
+import com.placementhub.stats.StatsService;
 import com.placementhub.student.StudentDriveService;
 import com.placementhub.student.StudentService;
 import com.placementhub.user.Role;
@@ -72,7 +78,19 @@ class SecurityAccessTest {
 	@MockitoBean
 	private ApplicationService applicationService;
 	@MockitoBean
+	private ApplicantService applicantService;
+	@MockitoBean
 	private PolicyService policyService;
+	@MockitoBean
+	private RoundService roundService;
+	@MockitoBean
+	private StatsService statsService;
+	@MockitoBean
+	private SelectionService selectionService;
+	@MockitoBean
+	private AuditQueryService auditQueryService;
+	@MockitoBean
+	private RoundResultService roundResultService;
 	@MockitoBean
 	private AuthService authService;
 	@MockitoBean
@@ -111,7 +129,12 @@ class SecurityAccessTest {
 				new Endpoint(HttpMethod.GET, "/api/drives", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/drives/1", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.POST, "/api/drives/1/open", Role.TPO_ADMIN),
+				new Endpoint(HttpMethod.GET, "/api/drives/1/rounds", Role.TPO_ADMIN),
+				new Endpoint(HttpMethod.GET, "/api/drives/1/applications", Role.TPO_ADMIN),
+				new Endpoint(HttpMethod.GET, "/api/drives/1/applications/export", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/policies", Role.TPO_ADMIN),
+				new Endpoint(HttpMethod.GET, "/api/audit", Role.TPO_ADMIN),
+				new Endpoint(HttpMethod.GET, "/api/stats", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.PUT, "/api/policies/DREAM_OFFER", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/students/me", Role.STUDENT),
 				new Endpoint(HttpMethod.GET, "/api/students/me/drives", Role.STUDENT),

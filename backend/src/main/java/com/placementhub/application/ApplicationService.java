@@ -25,6 +25,8 @@ import com.placementhub.policy.PlacementPolicy;
 import com.placementhub.policy.PlacementPolicyRepository;
 import com.placementhub.policy.PolicyEngine;
 import com.placementhub.policy.PolicyEvaluation;
+import com.placementhub.round.DriveRoundRepository;
+import com.placementhub.round.RoundResultRepository;
 import com.placementhub.student.CurrentStudentResolver;
 import com.placementhub.student.StudentProfile;
 
@@ -33,6 +35,8 @@ import com.placementhub.student.StudentProfile;
  * Apply rules (in order): drive exists and is published, no earlier application,
  * eligible and not blocked by a placement policy (one 422 with all reasons), then insert,
  * with the DB UNIQUE constraint as the race guard.
+ * Apply and withdraw lock the student's row first (see StudentProfileRepository), and every
+ * status change goes through StatusChanges, which writes the audit row.
  */
 @Service
 public class ApplicationService {
@@ -54,12 +58,16 @@ public class ApplicationService {
 	private final PlacementPolicyRepository policyRepository;
 	private final PolicyEngine policyEngine;
 	private final ApplicationMapper applicationMapper;
+	private final StatusChanges statusChanges;
+	private final DriveRoundRepository roundRepository;
+	private final RoundResultRepository resultRepository;
 	private final Clock clock;
 
 	public ApplicationService(CurrentStudentResolver currentStudentResolver, DriveRepository driveRepository,
 			ApplicationRepository applicationRepository, EligibilityService eligibilityService,
 			PlacementPolicyRepository policyRepository, PolicyEngine policyEngine,
-			ApplicationMapper applicationMapper, Clock clock) {
+			ApplicationMapper applicationMapper, StatusChanges statusChanges, DriveRoundRepository roundRepository,
+			RoundResultRepository resultRepository, Clock clock) {
 		this.currentStudentResolver = currentStudentResolver;
 		this.driveRepository = driveRepository;
 		this.applicationRepository = applicationRepository;
@@ -67,6 +75,9 @@ public class ApplicationService {
 		this.policyRepository = policyRepository;
 		this.policyEngine = policyEngine;
 		this.applicationMapper = applicationMapper;
+		this.statusChanges = statusChanges;
+		this.roundRepository = roundRepository;
+		this.resultRepository = resultRepository;
 		this.clock = clock;
 	}
 
@@ -74,12 +85,17 @@ public class ApplicationService {
 
 	@Transactional
 	public ApplicationResponse apply(ApplyRequest request) {
-		StudentProfile student = currentStudentResolver.requireProfile();
-
+		// Lock order: the drive, then the student (decision 50).
+		// 1. A SHARED lock on the drive: many students can apply at once, but an admin editing the criteria
+		//    or closing the drive (FOR UPDATE) waits for in-flight applies, and new applies wait for the edit.
+		//    So an apply can't commit against criteria that were changed while it ran.
 		// DRAFT drives are unpublished: students must not learn they exist
-		Drive drive = driveRepository.findById(request.driveId())
+		Drive drive = driveRepository.findByIdForShare(request.driveId())
 				.filter(d -> d.getStatus() != DriveStatus.DRAFT)
 				.orElseThrow(() -> ResourceNotFoundException.of("Drive", request.driveId()));
+
+		// 2. The student row: an admin selecting this student right now can't slip an offer past the policy check
+		StudentProfile student = currentStudentResolver.requireProfileForUpdate();
 
 		// Earlier application? Checked before eligibility so the message makes sense.
 		applicationRepository.findByDriveIdAndStudentId(request.driveId(), student.getId())
@@ -110,6 +126,7 @@ public class ApplicationService {
 			}
 			throw e;
 		}
+		statusChanges.created(saved, StatusChangeTrigger.APPLY);
 		return applicationMapper.toResponse(saved);
 	}
 
@@ -129,10 +146,11 @@ public class ApplicationService {
 
 	@Transactional
 	public ApplicationResponse withdraw(Long applicationId) {
-		Application application = findOwnOrThrow(applicationId);
+		// Locked first: a selection elsewhere may be turning this application INELIGIBLE right now
+		StudentProfile student = currentStudentResolver.requireProfileForUpdate();
+		Application application = findOwnOrThrow(applicationId, student);
 		checkCanWithdraw(application, Instant.now(clock));
-		application.setStatus(ApplicationStatus.WITHDRAWN);
-		// TODO Milestone 7: write an audit log entry for this status change
+		statusChanges.change(application, ApplicationStatus.WITHDRAWN, null, StatusChangeTrigger.WITHDRAW);
 		applicationRepository.flush();
 		return applicationMapper.toResponse(application);
 	}
@@ -159,9 +177,13 @@ public class ApplicationService {
 
 	// ---------- read ----------
 
+	/** Round-by-round tracking: every round of the drive, with this student's result and remarks (+2 queries). */
 	@Transactional(readOnly = true)
-	public ApplicationResponse getMine(Long applicationId) {
-		return applicationMapper.toResponse(findOwnOrThrow(applicationId));
+	public ApplicationDetailResponse getMine(Long applicationId) {
+		Application application = findOwnOrThrow(applicationId, currentStudentResolver.requireProfile());
+		return applicationMapper.toDetailResponse(application,
+				roundRepository.findByDriveIdOrderByRoundNoAsc(application.getDrive().getId()),
+				resultRepository.findByApplicationId(application.getId()));
 	}
 
 	@Transactional(readOnly = true)
@@ -172,8 +194,7 @@ public class ApplicationService {
 	}
 
 	/** Someone else's application gives the same 404 as a missing one, so its existence is not revealed. */
-	private Application findOwnOrThrow(Long applicationId) {
-		StudentProfile student = currentStudentResolver.requireProfile();
+	private Application findOwnOrThrow(Long applicationId, StudentProfile student) {
 		return applicationRepository.findByIdAndStudentId(applicationId, student.getId())
 				.orElseThrow(() -> ResourceNotFoundException.of("Application", applicationId));
 	}

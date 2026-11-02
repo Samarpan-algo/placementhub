@@ -169,3 +169,52 @@ Short notes, in plain words, on what I learned in each milestone.
 - **Reject what doesn't apply instead of ignoring it:** silently dropping `maxOffers` on ONE_OFFER would make an admin think a limit exists. A 400 tells them right away.
 - **Know where a rule *can't* be enforced:** policies are checked at apply time, but offers are created later when an admin marks SELECTED. A student can apply to two drives and be selected by both. That's written down as a known limitation, and Milestone 7 must re-check when marking SELECTED.
 - **Demo data with SQL, then clean up:** there's no API to mark SELECTED yet, so I inserted one SELECTED row with psql, saw the real 422 messages, and then deleted it and restored the policy rows exactly.
+
+---
+
+## Milestone 7, Session A: Rounds, results, selection, audit log (2026-11-02)
+
+**What I built:**
+- An audit log: every application status change (apply, withdraw, round results, selection, policy, completion) writes who, old → new, the reason and the trigger, in the same transaction.
+- Rounds for a drive (numbered 1, 2, 3…, fixed after creation), and bulk round results that save all or nothing, with corrections.
+- Final selection: it checks the final round and the policies, then re-checks the student's other pending applications. This closes the gap from decision 45.
+- Completing a drive rejects whatever is still pending. Students see round-by-round results and remarks.
+- 83 new tests (311 in total), and a repeatable Postman lifecycle folder (full collection: 172/172 assertions, run twice).
+
+**What I learned:**
+- **Audit in the same transaction:** `Propagation.MANDATORY` makes the audit method refuse to run outside a transaction. A rolled-back change can't leave an audit row behind, and a committed change always has one.
+- **One door for every status change:** putting "set status + write audit" in one helper (`StatusChanges`) means no code path can forget the audit. "No change → no row" is decided in one place too.
+- **Derive, don't remember:** an application's status is *calculated from all its round results* (a small pure function). So a correction in any round gives the right status, with no "undo" code.
+- **All-or-nothing batches:** first validate every item and collect every problem, then save. The admin gets one list of everything wrong, and the DB is never half-updated. Upsert makes resending the fixed sheet safe.
+- **400 vs 409 in a batch:** "this id isn't part of this drive" is a bad request. "This application is already SELECTED" is a conflict with current state. The batch returns 400 if any item is a bad request.
+- **Reuse the rule engine for a new question:** "may this pending application continue after an offer?" is the same as "could the student apply now?", so the M6 `PolicyEngine` answered it unchanged. With DREAM_OFFER, applications to drives above the threshold correctly stay active.
+- **Row locks as a mutex:** `SELECT … FOR UPDATE` on the student's row makes two selections for the same student run one after the other, so both can't pass ONE_OFFER. A UNIQUE constraint can't do that, because the rule spans different drives.
+- **Lock first, then load:** if Hibernate has already loaded an application before the lock, it keeps the old copy. So batches read only the ids, lock, and then load the entities fresh.
+- **Same lock order everywhere = no deadlocks:** always the drive, then students by ascending id.
+- **IDENTITY ids insert immediately:** `save()` on a new entity runs the INSERT right away, so every NOT NULL field must be set *before* `save()`. I caught this before the tests ran.
+- **Column limits apply to generated text too:** several joined policy reasons can exceed `VARCHAR(300)`, so the helper cuts them instead of failing the transaction.
+
+---
+
+## Milestone 7, Session B: Admin views, CSV, criteria changes, audit view, stats (2026-11-02)
+
+**What I built:**
+- A V3 migration: audit rows for round results and policy changes, and `status_reason` widened to 1000 characters. The audit always keeps the full reason.
+- The applicants list for a drive (filters, paging, student details, latest round), plus a CSV export that is safe against formula injection.
+- Criteria-change re-evaluation: editing an OPEN drive's criteria re-checks every pending application. The ones that now fail become INELIGIBLE with the reason, and the edit itself is audited (only the changed fields, old → new).
+- `jobType` can now change only while a drive is DRAFT. Apply takes a shared lock on the drive.
+- `GET /api/audit` (filters, newest first) and `GET /api/stats` (aggregate SQL, median included).
+- 108 new tests (419 in total), including repository tests on the real Postgres, and a Postman folder (full collection: 239/239 assertions, run twice).
+
+**What I learned:**
+- **Never edit an applied migration.** Flyway checksums them. A change is a new `V3` file that drops and re-adds the CHECK constraints.
+- **CSV injection is real:** Excel runs a cell that starts with `=`, `+`, `-` or `@` as a formula. A leading `'` makes it text. Escaping *every* cell is safer than remembering which columns are "safe", because the phone rule lives in the API, not in the DB.
+- **Proving "no N+1" instead of claiming it:** Hibernate statistics count the SQL statements. The applicants page runs 5 queries whether it has 1 row or 20.
+- **Mocks can't find SQL bugs.** The real-DB tests caught two bugs: PostgreSQL can't guess the type of a null timestamp parameter (`? IS NULL`, fixed with a `CAST`), and `Map.of().get(null)` throws a `NullPointerException`.
+- **Rolled-back tests:** a test can even delete rows inside its transaction to start clean; the rollback puts everything back. (It's still the dev DB, so Milestone 11 moves this to a test DB.)
+- **`FOR SHARE` vs `FOR UPDATE`:** many applies can hold the shared drive lock at once, but an admin's edit (`FOR UPDATE`) waits for them, and they wait for it. That closed a race where an apply could commit against criteria that had just changed.
+- **Reuse the rule engine again:** re-evaluation calls the same `EligibilityService` as apply, so the INELIGIBLE reason reads exactly like an apply rejection.
+- **Compare normalised values:** `12` and `12.00` are equal as numbers but not with `BigDecimal.equals`. The drive snapshot fixes the scale to 2, so an edit that changes nothing writes no audit row.
+- **Let the database aggregate:** `COUNT … FILTER`, `AVG` and `percentile_cont(0.5)` return a handful of rows; Java only divides counts into percentages.
+- **"Average package" needs a definition:** I use each placed student's *best* offer, so a student with two offers isn't counted twice.
+- **Postman variable scopes:** `pm.collectionVariables.get('baseUrl')` ignores a `--env-var` override; `pm.variables.get` respects it. Three failing assertions came from scripts calling the *old* app on another port.

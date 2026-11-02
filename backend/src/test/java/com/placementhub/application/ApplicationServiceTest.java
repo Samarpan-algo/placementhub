@@ -6,6 +6,11 @@ import static com.placementhub.policy.PolicyFixtures.oneOffer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -17,6 +22,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -27,11 +33,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import com.placementhub.audit.AuditAction;
+import com.placementhub.audit.AuditEntityType;
+import com.placementhub.audit.AuditService;
 import com.placementhub.common.Branch;
 import com.placementhub.common.ConflictException;
 import com.placementhub.common.ResourceNotFoundException;
@@ -43,6 +54,12 @@ import com.placementhub.drive.DriveStatus;
 import com.placementhub.drive.JobType;
 import com.placementhub.policy.PlacementPolicyRepository;
 import com.placementhub.policy.PolicyFixtures;
+import com.placementhub.round.DriveRound;
+import com.placementhub.round.DriveRoundRepository;
+import com.placementhub.round.RoundFixtures;
+import com.placementhub.round.RoundOutcome;
+import com.placementhub.round.RoundResult;
+import com.placementhub.round.RoundResultRepository;
 import com.placementhub.student.CurrentStudentResolver;
 import com.placementhub.student.StudentProfile;
 import com.placementhub.user.Role;
@@ -64,6 +81,12 @@ class ApplicationServiceTest {
 	private ApplicationRepository applicationRepository;
 	@Mock
 	private PlacementPolicyRepository policyRepository;
+	@Mock
+	private AuditService auditService;
+	@Mock
+	private DriveRoundRepository roundRepository;
+	@Mock
+	private RoundResultRepository resultRepository;
 
 	private ApplicationService service;
 	private StudentProfile aarav;
@@ -73,7 +96,7 @@ class ApplicationServiceTest {
 	void setUp() {
 		service = new ApplicationService(currentStudentResolver, driveRepository, applicationRepository,
 				new EligibilityService(), policyRepository, PolicyFixtures.engine(), new ApplicationMapper(),
-				Clock.fixed(NOW, ZoneOffset.UTC));
+				new StatusChanges(auditService), roundRepository, resultRepository, Clock.fixed(NOW, ZoneOffset.UTC));
 
 		// Aarav: CSE, 8.70, 0 backlogs, 2027 -> eligible for the drive below
 		aarav = new StudentProfile(new User("aarav.sharma@student.placementhub.dev", "hash", Role.STUDENT),
@@ -93,7 +116,9 @@ class ApplicationServiceTest {
 		drive.setBranches(Set.of(Branch.CSE, Branch.IT, Branch.ECE));
 		drive.setStatus(DriveStatus.OPEN);
 
-		when(currentStudentResolver.requireProfile()).thenReturn(aarav);
+		// apply and withdraw use the locking lookup, reads the plain one; each test uses only one of them
+		lenient().when(currentStudentResolver.requireProfile()).thenReturn(aarav);
+		lenient().when(currentStudentResolver.requireProfileForUpdate()).thenReturn(aarav);
 	}
 
 	// =====================================================================
@@ -105,7 +130,7 @@ class ApplicationServiceTest {
 
 		@Test
 		void eligibleStudentGetsAppliedApplication() {
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID)).thenReturn(Optional.empty());
 			when(applicationRepository.saveAndFlush(any(Application.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -118,8 +143,40 @@ class ApplicationServiceTest {
 		}
 
 		@Test
+		void locksTheStudentRowAndAuditsTheNewApplication() {
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID)).thenReturn(Optional.empty());
+			when(applicationRepository.saveAndFlush(any(Application.class))).thenAnswer(inv -> {
+				Application saved = inv.getArgument(0);
+				ReflectionTestUtils.setField(saved, "id", APPLICATION_ID);
+				return saved;
+			});
+
+			service.apply(new ApplyRequest(DRIVE_ID));
+
+			verify(currentStudentResolver).requireProfileForUpdate();
+			verify(currentStudentResolver, never()).requireProfile();
+			Map<String, Object> newValue = captureAudit(null);
+			assertThat(newValue).containsEntry("status", "APPLIED").containsEntry("trigger", "APPLY");
+		}
+
+		@Test
+		void takesASharedDriveLockBeforeTheStudentLock() {
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID)).thenReturn(Optional.empty());
+			when(applicationRepository.saveAndFlush(any(Application.class))).thenAnswer(inv -> inv.getArgument(0));
+
+			service.apply(new ApplyRequest(DRIVE_ID));
+
+			InOrder order = inOrder(driveRepository, currentStudentResolver);
+			order.verify(driveRepository).findByIdForShare(DRIVE_ID);
+			order.verify(currentStudentResolver).requireProfileForUpdate();
+			verify(driveRepository, never()).findById(any());
+		}
+
+		@Test
 		void missingDriveIs404() {
-			when(driveRepository.findById(99L)).thenReturn(Optional.empty());
+			when(driveRepository.findByIdForShare(99L)).thenReturn(Optional.empty());
 
 			assertThatThrownBy(() -> service.apply(new ApplyRequest(99L)))
 					.isInstanceOf(ResourceNotFoundException.class)
@@ -130,7 +187,7 @@ class ApplicationServiceTest {
 		@Test
 		void draftDriveIs404SoItsExistenceIsNotRevealed() {
 			drive.setStatus(DriveStatus.DRAFT);
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 
 			assertThatThrownBy(() -> service.apply(new ApplyRequest(DRIVE_ID)))
 					.isInstanceOf(ResourceNotFoundException.class)
@@ -144,8 +201,8 @@ class ApplicationServiceTest {
 			StudentProfile karan = new StudentProfile(new User("k@student.placementhub.dev", "h", Role.STUDENT),
 					"Karan Mehta", "23ME031", Branch.ME, (short) 2027, new BigDecimal("6.20"), (short) 2);
 			ReflectionTestUtils.setField(karan, "id", 7L);
-			when(currentStudentResolver.requireProfile()).thenReturn(karan);
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(currentStudentResolver.requireProfileForUpdate()).thenReturn(karan);
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, 7L)).thenReturn(Optional.empty());
 
 			assertThatThrownBy(() -> service.apply(new ApplyRequest(DRIVE_ID)))
@@ -162,7 +219,7 @@ class ApplicationServiceTest {
 		@Test
 		void closedDriveGives422NotOpen() {
 			drive.setStatus(DriveStatus.CLOSED);
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID)).thenReturn(Optional.empty());
 
 			assertThatThrownBy(() -> service.apply(new ApplyRequest(DRIVE_ID)))
@@ -174,7 +231,7 @@ class ApplicationServiceTest {
 		@EnumSource(value = ApplicationStatus.class, names = { "APPLIED", "SHORTLISTED", "REJECTED", "SELECTED",
 				"INELIGIBLE" })
 		void existingApplicationIs409AlreadyApplied(ApplicationStatus existingStatus) {
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID))
 					.thenReturn(Optional.of(application(existingStatus)));
 
@@ -186,7 +243,7 @@ class ApplicationServiceTest {
 
 		@Test
 		void reApplyAfterWithdrawIs409WithdrawalIsFinal() {
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID))
 					.thenReturn(Optional.of(application(ApplicationStatus.WITHDRAWN)));
 
@@ -198,7 +255,7 @@ class ApplicationServiceTest {
 		@Test
 		void concurrentDuplicateCaughtByDbConstraintIs409() {
 			// The check found nothing (the other request had not committed yet), but the INSERT hits UNIQUE
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID)).thenReturn(Optional.empty());
 			when(applicationRepository.saveAndFlush(any(Application.class)))
 					.thenThrow(constraintViolation("uq_applications_drive_student"));
@@ -210,7 +267,7 @@ class ApplicationServiceTest {
 
 		@Test
 		void otherConstraintViolationsAreNotDisguisedAsDuplicates() {
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID)).thenReturn(Optional.empty());
 			DataIntegrityViolationException other = constraintViolation("fk_applications_drive");
 			when(applicationRepository.saveAndFlush(any(Application.class))).thenThrow(other);
@@ -229,7 +286,7 @@ class ApplicationServiceTest {
 
 		@BeforeEach
 		void eligibleStudentAndNoEarlierApplication() {
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID)).thenReturn(Optional.empty());
 		}
 
@@ -321,6 +378,31 @@ class ApplicationServiceTest {
 		}
 
 		@Test
+		void locksTheStudentRowAndAuditsOldAndNewStatus() {
+			when(applicationRepository.findByIdAndStudentId(APPLICATION_ID, STUDENT_ID))
+					.thenReturn(Optional.of(application(ApplicationStatus.SHORTLISTED)));
+
+			service.withdraw(APPLICATION_ID);
+
+			verify(currentStudentResolver).requireProfileForUpdate();
+			ArgumentCaptor<Map<String, Object>> oldValue = mapCaptor();
+			ArgumentCaptor<Map<String, Object>> newValue = mapCaptor();
+			verify(auditService).record(eq(AuditEntityType.APPLICATION), eq(APPLICATION_ID),
+					eq(AuditAction.STATUS_CHANGED), oldValue.capture(), newValue.capture());
+			assertThat(oldValue.getValue()).containsEntry("status", "SHORTLISTED");
+			assertThat(newValue.getValue()).containsEntry("status", "WITHDRAWN").containsEntry("trigger", "WITHDRAW");
+		}
+
+		@Test
+		void blockedWithdrawalWritesNoAudit() {
+			when(applicationRepository.findByIdAndStudentId(APPLICATION_ID, STUDENT_ID))
+					.thenReturn(Optional.of(application(ApplicationStatus.REJECTED)));
+
+			assertThatThrownBy(() -> service.withdraw(APPLICATION_ID)).isInstanceOf(ConflictException.class);
+			verify(auditService, never()).record(any(), anyLong(), any(), any(), any());
+		}
+
+		@Test
 		void someoneElsesApplicationIs404NotForbidden() {
 			// The query filters by owner, so another student's application is simply not found
 			when(applicationRepository.findByIdAndStudentId(APPLICATION_ID, STUDENT_ID)).thenReturn(Optional.empty());
@@ -408,9 +490,59 @@ class ApplicationServiceTest {
 				.hasMessage("Application with id 50 not found");
 	}
 
+	@Test
+	void getMineTracksEveryRoundWithTheStudentsResultAndRemarks() {
+		drive.setStatus(DriveStatus.CLOSED);
+		Application application = application(ApplicationStatus.REJECTED);
+		application.setStatusReason("Not cleared in Round 2: Technical");
+		DriveRound round1 = RoundFixtures.round(101L, drive, 1, "Aptitude");
+		DriveRound round2 = RoundFixtures.round(102L, drive, 2, "Technical");
+		DriveRound round3 = RoundFixtures.round(103L, drive, 3, "HR");
+		RoundResult cleared = RoundFixtures.result(round1, application, RoundOutcome.CLEARED);
+		cleared.setRemarks("Good score");
+		RoundResult failed = RoundFixtures.result(round2, application, RoundOutcome.NOT_CLEARED);
+		when(applicationRepository.findByIdAndStudentId(APPLICATION_ID, STUDENT_ID))
+				.thenReturn(Optional.of(application));
+		when(roundRepository.findByDriveIdOrderByRoundNoAsc(DRIVE_ID)).thenReturn(List.of(round1, round2, round3));
+		when(resultRepository.findByApplicationId(APPLICATION_ID)).thenReturn(List.of(failed, cleared));
+
+		ApplicationDetailResponse response = service.getMine(APPLICATION_ID);
+
+		assertThat(response.status()).isEqualTo(ApplicationStatus.REJECTED);
+		assertThat(response.statusReason()).isEqualTo("Not cleared in Round 2: Technical");
+		assertThat(response.rounds()).containsExactly(
+				new ApplicationDetailResponse.Round(1, "Aptitude", null, RoundOutcome.CLEARED, "Good score"),
+				new ApplicationDetailResponse.Round(2, "Technical", null, RoundOutcome.NOT_CLEARED, null),
+				new ApplicationDetailResponse.Round(3, "HR", null, null, null)); // no result yet
+	}
+
+	@Test
+	void getMineWithoutRoundsHasAnEmptyList() {
+		when(applicationRepository.findByIdAndStudentId(APPLICATION_ID, STUDENT_ID))
+				.thenReturn(Optional.of(application(ApplicationStatus.APPLIED)));
+		when(roundRepository.findByDriveIdOrderByRoundNoAsc(DRIVE_ID)).thenReturn(List.of());
+		when(resultRepository.findByApplicationId(APPLICATION_ID)).thenReturn(List.of());
+
+		assertThat(service.getMine(APPLICATION_ID).rounds()).isEmpty();
+	}
+
 	// ---------------------------------------------------------------------
 	// helpers
 	// ---------------------------------------------------------------------
+
+	/** The new value of the single audit row written; oldValue must be the expected old value (null on apply). */
+	private Map<String, Object> captureAudit(Map<String, Object> expectedOldValue) {
+		ArgumentCaptor<Map<String, Object>> newValue = mapCaptor();
+		verify(auditService).record(eq(AuditEntityType.APPLICATION), eq(APPLICATION_ID),
+				eq(AuditAction.STATUS_CHANGED), expectedOldValue == null ? isNull() : eq(expectedOldValue),
+				newValue.capture());
+		return newValue.getValue();
+	}
+
+	@SuppressWarnings({ "unchecked", "rawtypes" })
+	private static ArgumentCaptor<Map<String, Object>> mapCaptor() {
+		return (ArgumentCaptor) ArgumentCaptor.forClass(Map.class);
+	}
 
 	private Application application(ApplicationStatus status) {
 		Application application = new Application(drive, aarav);
