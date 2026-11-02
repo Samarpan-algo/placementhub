@@ -85,13 +85,17 @@ public class ApplicationService {
 
 	@Transactional
 	public ApplicationResponse apply(ApplyRequest request) {
-		// Locked first: an admin selecting this student right now can't slip an offer past the policy check
-		StudentProfile student = currentStudentResolver.requireProfileForUpdate();
-
+		// Lock order: the drive, then the student (decision 50).
+		// 1. A SHARED lock on the drive: many students can apply at once, but an admin editing the criteria
+		//    or closing the drive (FOR UPDATE) waits for in-flight applies, and new applies wait for the edit.
+		//    So an apply can't commit against criteria that were changed while it ran.
 		// DRAFT drives are unpublished: students must not learn they exist
-		Drive drive = driveRepository.findById(request.driveId())
+		Drive drive = driveRepository.findByIdForShare(request.driveId())
 				.filter(d -> d.getStatus() != DriveStatus.DRAFT)
 				.orElseThrow(() -> ResourceNotFoundException.of("Drive", request.driveId()));
+
+		// 2. The student row: an admin selecting this student right now can't slip an offer past the policy check
+		StudentProfile student = currentStudentResolver.requireProfileForUpdate();
 
 		// Earlier application? Checked before eligibility so the message makes sense.
 		applicationRepository.findByDriveIdAndStudentId(request.driveId(), student.getId())

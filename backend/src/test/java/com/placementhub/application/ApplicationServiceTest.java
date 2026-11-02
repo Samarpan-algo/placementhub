@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -33,6 +34,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -128,7 +130,7 @@ class ApplicationServiceTest {
 
 		@Test
 		void eligibleStudentGetsAppliedApplication() {
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID)).thenReturn(Optional.empty());
 			when(applicationRepository.saveAndFlush(any(Application.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -142,7 +144,7 @@ class ApplicationServiceTest {
 
 		@Test
 		void locksTheStudentRowAndAuditsTheNewApplication() {
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID)).thenReturn(Optional.empty());
 			when(applicationRepository.saveAndFlush(any(Application.class))).thenAnswer(inv -> {
 				Application saved = inv.getArgument(0);
@@ -159,8 +161,22 @@ class ApplicationServiceTest {
 		}
 
 		@Test
+		void takesASharedDriveLockBeforeTheStudentLock() {
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID)).thenReturn(Optional.empty());
+			when(applicationRepository.saveAndFlush(any(Application.class))).thenAnswer(inv -> inv.getArgument(0));
+
+			service.apply(new ApplyRequest(DRIVE_ID));
+
+			InOrder order = inOrder(driveRepository, currentStudentResolver);
+			order.verify(driveRepository).findByIdForShare(DRIVE_ID);
+			order.verify(currentStudentResolver).requireProfileForUpdate();
+			verify(driveRepository, never()).findById(any());
+		}
+
+		@Test
 		void missingDriveIs404() {
-			when(driveRepository.findById(99L)).thenReturn(Optional.empty());
+			when(driveRepository.findByIdForShare(99L)).thenReturn(Optional.empty());
 
 			assertThatThrownBy(() -> service.apply(new ApplyRequest(99L)))
 					.isInstanceOf(ResourceNotFoundException.class)
@@ -171,7 +187,7 @@ class ApplicationServiceTest {
 		@Test
 		void draftDriveIs404SoItsExistenceIsNotRevealed() {
 			drive.setStatus(DriveStatus.DRAFT);
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 
 			assertThatThrownBy(() -> service.apply(new ApplyRequest(DRIVE_ID)))
 					.isInstanceOf(ResourceNotFoundException.class)
@@ -186,7 +202,7 @@ class ApplicationServiceTest {
 					"Karan Mehta", "23ME031", Branch.ME, (short) 2027, new BigDecimal("6.20"), (short) 2);
 			ReflectionTestUtils.setField(karan, "id", 7L);
 			when(currentStudentResolver.requireProfileForUpdate()).thenReturn(karan);
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, 7L)).thenReturn(Optional.empty());
 
 			assertThatThrownBy(() -> service.apply(new ApplyRequest(DRIVE_ID)))
@@ -203,7 +219,7 @@ class ApplicationServiceTest {
 		@Test
 		void closedDriveGives422NotOpen() {
 			drive.setStatus(DriveStatus.CLOSED);
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID)).thenReturn(Optional.empty());
 
 			assertThatThrownBy(() -> service.apply(new ApplyRequest(DRIVE_ID)))
@@ -215,7 +231,7 @@ class ApplicationServiceTest {
 		@EnumSource(value = ApplicationStatus.class, names = { "APPLIED", "SHORTLISTED", "REJECTED", "SELECTED",
 				"INELIGIBLE" })
 		void existingApplicationIs409AlreadyApplied(ApplicationStatus existingStatus) {
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID))
 					.thenReturn(Optional.of(application(existingStatus)));
 
@@ -227,7 +243,7 @@ class ApplicationServiceTest {
 
 		@Test
 		void reApplyAfterWithdrawIs409WithdrawalIsFinal() {
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID))
 					.thenReturn(Optional.of(application(ApplicationStatus.WITHDRAWN)));
 
@@ -239,7 +255,7 @@ class ApplicationServiceTest {
 		@Test
 		void concurrentDuplicateCaughtByDbConstraintIs409() {
 			// The check found nothing (the other request had not committed yet), but the INSERT hits UNIQUE
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID)).thenReturn(Optional.empty());
 			when(applicationRepository.saveAndFlush(any(Application.class)))
 					.thenThrow(constraintViolation("uq_applications_drive_student"));
@@ -251,7 +267,7 @@ class ApplicationServiceTest {
 
 		@Test
 		void otherConstraintViolationsAreNotDisguisedAsDuplicates() {
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID)).thenReturn(Optional.empty());
 			DataIntegrityViolationException other = constraintViolation("fk_applications_drive");
 			when(applicationRepository.saveAndFlush(any(Application.class))).thenThrow(other);
@@ -270,7 +286,7 @@ class ApplicationServiceTest {
 
 		@BeforeEach
 		void eligibleStudentAndNoEarlierApplication() {
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForShare(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID)).thenReturn(Optional.empty());
 		}
 
