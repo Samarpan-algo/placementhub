@@ -94,6 +94,59 @@ function validate(form) {
   return errors;
 }
 
+function branchLabel(code) {
+  const branch = BRANCHES.find((b) => b.code === code);
+  return branch ? `${branch.code} (${branch.name})` : code;
+}
+
+/** The "check before you send" screen. Pure display: the parent owns the data and the two actions. */
+function ReviewDetails({ form, error, submitting, onEdit, onConfirm }) {
+  // [label, value, locked?] for every field, in the same order as the form
+  const rows = [
+    ['Email', form.email, false],
+    ['Password', '•'.repeat(8) + ' (hidden)', false],
+    ['Full name', form.fullName, false],
+    ['Roll number', form.rollNo, true],
+    ['Branch', branchLabel(form.branch), true],
+    ['Graduation year', form.graduationYear, true],
+    ['CGPA', form.cgpa, true],
+    ['Active backlogs', form.activeBacklogs, true],
+    ['Phone', form.phone || 'Not given', false],
+  ];
+
+  return (
+    <div className="form">
+      <h2>Review your details</h2>
+      <ErrorAlert error={error} />
+      <div className="alert alert-warning">
+        <strong>Check carefully:</strong> your roll number, branch, graduation year, CGPA and active backlogs
+        cannot be changed after you register. They decide which drives you are eligible for.
+      </div>
+
+      <dl className="review-list">
+        {rows.map(([label, value, locked]) => (
+          <div key={label} className="review-row">
+            <dt>{label}</dt>
+            <dd>
+              {value}
+              {locked && <span className="badge-locked">Can&apos;t be changed later</span>}
+            </dd>
+          </div>
+        ))}
+      </dl>
+
+      <div className="button-row">
+        <button type="button" className="btn btn-secondary" onClick={onEdit} disabled={submitting}>
+          Edit
+        </button>
+        <button type="button" className="btn btn-primary" onClick={onConfirm} disabled={submitting}>
+          {submitting ? 'Registering…' : 'Confirm and register'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function RegisterPage() {
   const navigate = useNavigate();
   // One state object for the whole form, plus one for the error under each field
@@ -101,6 +154,8 @@ export default function RegisterPage() {
   const [fieldErrors, setFieldErrors] = useState({});
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  // false = show the form, true = show the review screen. `form` keeps the values either way.
+  const [reviewing, setReviewing] = useState(false);
 
   // Every input has a name matching a key in `form`, so one handler serves them all.
   // We build a NEW object ({...form}) instead of changing the old one: React re-renders when state is replaced.
@@ -110,9 +165,10 @@ export default function RegisterPage() {
     setForm({ ...form, [name]: name === 'rollNo' ? value.toUpperCase() : value });
   }
 
-  async function handleSubmit(event) {
+  // Step 1: the form's Register button. Nothing is sent yet; valid values go to the review screen.
+  function handleSubmit(event) {
     event.preventDefault(); // stop the browser's own form submit (a full page reload)
-    // Trim once, then validate and send the same values. Showing them trimmed tells the student what we used.
+    // Trim once; the review screen and the request both use these trimmed values
     const values = trimValues(form);
     setForm(values);
     const errors = validate(values);
@@ -121,27 +177,50 @@ export default function RegisterPage() {
       setError({ message: 'Please fix the highlighted fields.', details: [] });
       return;
     }
+    setError(null);
+    setReviewing(true);
+    window.scrollTo(0, 0);
+  }
 
+  // Step 2: "Confirm and register" on the review screen
+  async function handleConfirm() {
     setError(null);
     setSubmitting(true);
     try {
       await api.post('/api/auth/register', {
-        email: values.email,
-        password: values.password,
-        fullName: values.fullName,
-        rollNo: values.rollNo,
-        branch: values.branch,
-        graduationYear: Number(values.graduationYear),
-        cgpa: Number(values.cgpa),
-        activeBacklogs: Number(values.activeBacklogs),
-        phone: values.phone || null,
+        email: form.email,
+        password: form.password,
+        fullName: form.fullName,
+        rollNo: form.rollNo,
+        branch: form.branch,
+        graduationYear: Number(form.graduationYear),
+        cgpa: Number(form.cgpa),
+        activeBacklogs: Number(form.activeBacklogs),
+        phone: form.phone || null,
       });
-      navigate('/login', { state: { message: 'Registered, please log in.', email: values.email } });
+      navigate('/login', { state: { message: 'Registered, please log in.', email: form.email } });
     } catch (err) {
-      // e.g. 409 "An account with this email already exists", or 400 with one detail per field
+      // e.g. 409 "This roll number is already registered": back to the form, where it can be fixed
       setError(toApiError(err));
       setSubmitting(false);
+      setReviewing(false);
     }
+  }
+
+  if (reviewing) {
+    return (
+      <div className="page">
+        <div className="card auth-card wide">
+          <ReviewDetails
+            form={form}
+            error={error}
+            submitting={submitting}
+            onEdit={() => setReviewing(false)}
+            onConfirm={handleConfirm}
+          />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -246,8 +325,8 @@ export default function RegisterPage() {
             </Field>
           </div>
 
-          <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {submitting ? 'Registering…' : 'Register'}
+          <button type="submit" className="btn btn-primary">
+            Review details
           </button>
         </form>
         <p className="muted">

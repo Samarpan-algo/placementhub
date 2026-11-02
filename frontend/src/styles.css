@@ -11,6 +11,8 @@
   --color-error-bg: #fef2f2;
   --color-success: #15803d;
   --color-success-bg: #f0fdf4;
+  --color-warning: #92400e;
+  --color-warning-bg: #fffbeb;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -178,6 +180,12 @@ h2 {
   cursor: not-allowed;
 }
 
+.button-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
 /* ---------- messages ---------- */
 
 .alert {
@@ -201,4 +209,57 @@ h2 {
   color: var(--color-success);
   background: var(--color-success-bg);
   border-color: var(--color-success);
+}
+
+.alert-warning {
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+  border-color: var(--color-warning);
+}
+
+/* ---------- review list (register confirmation) ---------- */
+
+.review-list {
+  margin: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.review-row {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+}
+
+.review-row + .review-row {
+  border-top: 1px solid var(--color-border);
+}
+
+.review-row dt {
+  color: var(--color-muted);
+}
+
+.review-row dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere; /* long emails wrap instead of overflowing */
+}
+
+@media (max-width: 520px) {
+  .review-row {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}
+
+.badge-locked {
+  margin-left: var(--space-2);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius);
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
