@@ -452,3 +452,88 @@ h2 {
   font-size: 1.6rem;
   font-weight: 700;
 }
+
+/* ---------- drives ---------- */
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.drive-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.drive-card-top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.drive-title {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.drive-card .muted,
+.page-heading .muted {
+  margin: 0;
+}
+
+/* Label above value, laid out in as many columns as fit */
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+}
+
+.facts dt {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.facts dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.description {
+  white-space: pre-line; /* keep the admin's line breaks */
+}
+
+.eligibility {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  font-weight: 600;
+}
+
+.eligibility p {
+  margin: 0;
+}
+
+.eligibility ul {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-6);
+  font-weight: 400;
+}
+
+.eligibility-yes {
+  color: var(--color-success);
+  background: var(--color-success-bg);
+}
+
+.eligibility-no {
+  color: var(--color-error);
+  background: var(--color-error-bg);
+}

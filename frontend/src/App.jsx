@@ -7,6 +7,8 @@ import AppLayout from './components/AppLayout.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
 import AdminHomePage from './pages/admin/AdminHomePage.jsx';
+import DriveDetailPage from './pages/student/DriveDetailPage.jsx';
+import DrivesPage from './pages/student/DrivesPage.jsx';
 import StudentHomePage from './pages/student/StudentHomePage.jsx';
 
 /** "/" and unknown URLs: logged in → your own home, otherwise → login. */
@@ -47,7 +49,10 @@ export default function App() {
         }
       >
         <Route index element={<StudentHomePage />} />
-        {/* /student/anything-else → back to /student until Milestone 9 adds the pages */}
+        <Route path="drives" element={<DrivesPage />} />
+        {/* :id is a URL parameter; the page reads it with useParams() */}
+        <Route path="drives/:id" element={<DriveDetailPage />} />
+        {/* any other /student/... URL → back to the dashboard */}
         <Route path="*" element={<Navigate to="/student" replace />} />
       </Route>
 
