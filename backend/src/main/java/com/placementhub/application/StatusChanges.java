@@ -18,8 +18,8 @@ import com.placementhub.audit.AuditService;
 @Component
 public class StatusChanges {
 
-	/** The length of applications.status_reason (VARCHAR(300)). */
-	static final int MAX_REASON_LENGTH = 300;
+	/** The length of applications.status_reason (VARCHAR(1000) since V3). */
+	static final int MAX_REASON_LENGTH = 1000;
 
 	private final AuditService auditService;
 
@@ -35,24 +35,29 @@ public class StatusChanges {
 
 	/**
 	 * Sets the new status and reason. Writes an audit row only if one of them actually changed.
+	 * The column gets the reason cut to fit; the audit row always gets the full reason.
 	 * @return true if something changed
 	 */
 	public boolean change(Application application, ApplicationStatus status, String reason,
 			StatusChangeTrigger trigger) {
-		reason = fitReason(reason);
+		String storedReason = fitReason(reason);
 		ApplicationStatus oldStatus = application.getStatus();
 		String oldReason = application.getStatusReason();
-		if (oldStatus == status && Objects.equals(oldReason, reason)) {
+		// Compare what would be stored with what is stored
+		if (oldStatus == status && Objects.equals(oldReason, storedReason)) {
 			return false;
 		}
 		application.setStatus(status);
-		application.setStatusReason(reason);
+		application.setStatusReason(storedReason);
 		auditService.record(AuditEntityType.APPLICATION, application.getId(), AuditAction.STATUS_CHANGED,
 				value(oldStatus, oldReason, null), value(status, reason, trigger));
 		return true;
 	}
 
-	/** Long policy reasons (several joined) are cut with "..." rather than failing the whole transaction. */
+	/**
+	 * A safety net: 1000 characters fits every realistic reason (six eligibility or three policy reasons),
+	 * but an unexpectedly long one is cut with "..." rather than failing the whole transaction.
+	 */
 	static String fitReason(String reason) {
 		if (reason == null || reason.length() <= MAX_REASON_LENGTH) {
 			return reason;

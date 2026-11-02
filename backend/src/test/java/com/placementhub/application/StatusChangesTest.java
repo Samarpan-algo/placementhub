@@ -82,12 +82,47 @@ class StatusChangesTest {
 	}
 
 	@Test
-	void reasonLongerThanTheColumnIsCutWithAnEllipsis() {
-		String longReason = "x".repeat(400);
+	void reasonOf400CharactersIsStoredWhole() {
+		String reason = "x".repeat(400);
+
+		statusChanges.change(application, ApplicationStatus.INELIGIBLE, reason, StatusChangeTrigger.POLICY);
+
+		assertThat(application.getStatusReason()).isEqualTo(reason);
+	}
+
+	@Test
+	void reasonExactlyAtTheLimitIsNotCut() {
+		String reason = "x".repeat(StatusChanges.MAX_REASON_LENGTH);
+
+		statusChanges.change(application, ApplicationStatus.INELIGIBLE, reason, StatusChangeTrigger.POLICY);
+
+		assertThat(application.getStatusReason()).isEqualTo(reason);
+	}
+
+	@Test
+	@SuppressWarnings({ "unchecked", "rawtypes" })
+	void reasonLongerThanTheColumnIsCutInTheColumnButKeptWholeInTheAudit() {
+		String longReason = "x".repeat(1200);
 
 		statusChanges.change(application, ApplicationStatus.INELIGIBLE, longReason, StatusChangeTrigger.POLICY);
 
 		assertThat(application.getStatusReason()).hasSize(StatusChanges.MAX_REASON_LENGTH).endsWith("...");
+		ArgumentCaptor<Map<String, Object>> newValue = (ArgumentCaptor) ArgumentCaptor.forClass(Map.class);
+		verify(auditService).record(any(), anyLong(), any(), any(), newValue.capture());
+		assertThat(newValue.getValue()).containsEntry("reason", longReason);
+	}
+
+	@Test
+	void sameLongReasonAgainIsNotAChange() {
+		String longReason = "x".repeat(1200);
+		application.setStatus(ApplicationStatus.INELIGIBLE);
+		application.setStatusReason(StatusChanges.fitReason(longReason));
+
+		boolean changed = statusChanges.change(application, ApplicationStatus.INELIGIBLE, longReason,
+				StatusChangeTrigger.POLICY);
+
+		assertThat(changed).isFalse();
+		verify(auditService, never()).record(any(), anyLong(), any(), any(), any());
 	}
 
 }

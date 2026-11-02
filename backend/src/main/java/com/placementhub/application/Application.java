@@ -40,7 +40,7 @@ public class Application {
 	@Column(nullable = false, length = 20)
 	private ApplicationStatus status = ApplicationStatus.APPLIED;
 
-	@Column(name = "status_reason", length = 300)
+	@Column(name = "status_reason", length = 1000)
 	private String statusReason;
 
 	@Column(name = "applied_at", nullable = false, updatable = false)
