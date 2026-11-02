@@ -1270,4 +1270,4 @@ A 401 from `/api/auth/login` means a wrong email or password, so the login page 
 ## 72. The drive date check compares days in IST, not UTC
 **Milestone:** 9 · **Date:** 2026-11-02
 
-**Decision:** `DriveService.checkDates` converts the registration deadline to an IST date (the shared `StudentTimeFormat.IST` zone) before checking that `driveDate` is not earlier. Before, a deadline of 3 Dec 02:00 IST counted as 2 Dec (its UTC day), so a 2 Dec drive date was wrongly accepted.
+**Decision:** `DriveService.checkDates` converts the registration deadline to an IST date (the shared `AppTime.IST` zone) before checking that `driveDate` is not earlier. Before, a deadline of 3 Dec 02:00 IST counted as 2 Dec (its UTC day), so a 2 Dec drive date was wrongly accepted.

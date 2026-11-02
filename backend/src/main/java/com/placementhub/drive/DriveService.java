@@ -16,10 +16,10 @@ import com.placementhub.application.SelectionService;
 import com.placementhub.audit.AuditAction;
 import com.placementhub.audit.AuditEntityType;
 import com.placementhub.audit.AuditService;
+import com.placementhub.common.AppTime;
 import com.placementhub.common.ConflictException;
 import com.placementhub.common.PageResponse;
 import com.placementhub.common.ResourceNotFoundException;
-import com.placementhub.common.StudentTimeFormat;
 import com.placementhub.company.Company;
 import com.placementhub.company.CompanyRepository;
 import com.placementhub.user.CurrentUserProvider;
@@ -194,7 +194,7 @@ public class DriveService {
 	 */
 	private static void checkDates(Drive drive) {
 		if (drive.getDriveDate() != null
-				&& drive.getDriveDate().isBefore(drive.getRegistrationDeadline().atZone(StudentTimeFormat.IST).toLocalDate())) {
+				&& drive.getDriveDate().isBefore(drive.getRegistrationDeadline().atZone(AppTime.IST).toLocalDate())) {
 			throw new ConflictException("Drive date cannot be before the registration deadline");
 		}
 	}
