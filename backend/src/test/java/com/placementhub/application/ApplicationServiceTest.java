@@ -373,6 +373,7 @@ class ApplicationServiceTest {
 			ApplicationResponse response = service.withdraw(APPLICATION_ID);
 
 			assertThat(response.status()).isEqualTo(ApplicationStatus.WITHDRAWN);
+			assertThat(response.driveStatus()).isEqualTo(DriveStatus.OPEN);
 			assertThat(application.getStatus()).isEqualTo(ApplicationStatus.WITHDRAWN);
 			verify(applicationRepository).flush();
 		}
@@ -510,6 +511,7 @@ class ApplicationServiceTest {
 
 		assertThat(response.status()).isEqualTo(ApplicationStatus.REJECTED);
 		assertThat(response.statusReason()).isEqualTo("Not cleared in Round 2: Technical");
+		assertThat(response.driveStatus()).isEqualTo(DriveStatus.CLOSED);
 		assertThat(response.rounds()).containsExactly(
 				new ApplicationDetailResponse.Round(1, "Aptitude", null, RoundOutcome.CLEARED, "Good score"),
 				new ApplicationDetailResponse.Round(2, "Technical", null, RoundOutcome.NOT_CLEARED, null),

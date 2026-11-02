@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
+import com.placementhub.drive.DriveStatus;
 import com.placementhub.drive.JobType;
 import com.placementhub.round.RoundOutcome;
 
@@ -22,6 +23,7 @@ public record ApplicationDetailResponse(
 		String statusReason,
 		Instant appliedAt,
 		Instant registrationDeadline,
+		DriveStatus driveStatus,
 		List<Round> rounds) {
 
 	public record Round(

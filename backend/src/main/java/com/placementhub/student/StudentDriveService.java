@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.springframework.data.domain.PageImpl;
@@ -12,12 +13,14 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.placementhub.application.Application;
 import com.placementhub.application.ApplicationRepository;
 import com.placementhub.application.ApplicationStatus;
 import com.placementhub.application.DriveApplicationStatus;
 import com.placementhub.application.EligibilityResult;
 import com.placementhub.application.EligibilityService;
 import com.placementhub.common.PageResponse;
+import com.placementhub.common.ResourceNotFoundException;
 import com.placementhub.drive.Drive;
 import com.placementhub.drive.DriveMapper;
 import com.placementhub.drive.DriveRepository;
@@ -78,19 +81,52 @@ public class StudentDriveService {
 				: applicationRepository.findSelectedOffers(student.getId());
 
 		List<StudentDriveResponse> items = drives.stream()
-				.map(drive -> {
-					EligibilityResult eligibility = eligibilityService.evaluate(student, drive, now);
-					PolicyEvaluation policies = policyEngine.evaluate(activePolicies, drive, offers);
-					List<String> reasons = new ArrayList<>(eligibility.reasons());
-					reasons.addAll(policies.reasons());
-					return new StudentDriveResponse(driveMapper.toResponse(drive),
-							eligibility.eligible() && policies.allowed(), List.copyOf(reasons),
-							statusByDriveId.get(drive.getId()));
-				})
+				.map(drive -> toItem(student, drive, now, activePolicies, offers, statusByDriveId.get(drive.getId())))
 				.filter(item -> !eligibleOnly || item.eligible())
 				.toList();
 
 		return PageResponse.from(pageOf(items, pageable));
+	}
+
+	/**
+	 * One drive, in the same shape as a browse item. Visible if it is OPEN, or if the student has an
+	 * application to it (any status), so links from "My applications" keep working after a drive closes.
+	 * Anything else (a DRAFT drive, a closed drive they never applied to, a missing id) is the same 404,
+	 * so a student can't discover which drive ids exist. A non-OPEN drive is never eligible: the
+	 * EligibilityService "not open" rule adds that reason. At most 5 queries.
+	 */
+	@Transactional(readOnly = true)
+	public StudentDriveResponse getOne(Long driveId) {
+		StudentProfile student = currentStudentResolver.requireProfile();
+		Instant now = Instant.now(clock);
+
+		Optional<Drive> found = driveRepository.findById(driveId);
+		ApplicationStatus applicationStatus = found.isEmpty()
+				? null
+				: applicationRepository.findByDriveIdAndStudentId(driveId, student.getId())
+						.map(Application::getStatus)
+						.orElse(null);
+		// Drives never go back to DRAFT and apply needs OPEN, so a DRAFT drive never has an application
+		Drive drive = found
+				.filter(d -> d.getStatus() == DriveStatus.OPEN || applicationStatus != null)
+				.orElseThrow(() -> ResourceNotFoundException.of("Drive", driveId));
+
+		List<PlacementPolicy> activePolicies = policyRepository.findByActiveTrue();
+		List<Offer> offers = activePolicies.isEmpty()
+				? List.of()
+				: applicationRepository.findSelectedOffers(student.getId());
+		return toItem(student, drive, now, activePolicies, offers, applicationStatus);
+	}
+
+	/** Eligibility reasons first, then policy reasons; eligible only if both pass. */
+	private StudentDriveResponse toItem(StudentProfile student, Drive drive, Instant now,
+			List<PlacementPolicy> activePolicies, List<Offer> offers, ApplicationStatus applicationStatus) {
+		EligibilityResult eligibility = eligibilityService.evaluate(student, drive, now);
+		PolicyEvaluation policies = policyEngine.evaluate(activePolicies, drive, offers);
+		List<String> reasons = new ArrayList<>(eligibility.reasons());
+		reasons.addAll(policies.reasons());
+		return new StudentDriveResponse(driveMapper.toResponse(drive), eligibility.eligible() && policies.allowed(),
+				List.copyOf(reasons), applicationStatus);
 	}
 
 	private Map<Long, ApplicationStatus> applicationStatuses(StudentProfile student, List<Drive> drives) {
