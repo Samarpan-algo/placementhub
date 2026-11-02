@@ -22,6 +22,7 @@
    - Always work on the milestone branch (one per milestone); never commit directly to `main`.
    - Before every commit, check that `.env` and other secrets are not staged.
    - Never merge into `main` or push to GitHub without asking me first.
+   - Before switching branches or merging, tell me so I can stop my running dev servers (backend and frontend); after merging, remind me to restart them.
    - After committing, show me `git log --oneline` for the new commits.
    - Do not add Co-Authored-By, Claude-Session, or any other AI attribution trailers to commit messages.
 6. **Never:** commit secrets (use env vars plus `.env.example`), add technologies outside the stack below, or expand scope without asking me.
