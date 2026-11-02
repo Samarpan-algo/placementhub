@@ -21,7 +21,7 @@ export function toApiError(error) {
     return { status: response.status, message, details };
   }
 
-  // Not our JSON. In dev, the Vite proxy answers 500 with an empty body when the backend is down.
+  // Not our JSON. In dev, the Vite proxy answers 502 with an empty body when the backend is down.
   if (response.status >= 500) {
     return { status: response.status, message: 'The server is not responding. Is the backend running?', details: [] };
   }
