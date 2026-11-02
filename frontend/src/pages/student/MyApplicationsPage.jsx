@@ -1,15 +1,12 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import api from '../../api/client.js';
-import { toApiError } from '../../api/errors.js';
 import { useApi } from '../../api/useApi.js';
-import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 import EmptyState from '../../components/EmptyState.jsx';
 import ErrorAlert from '../../components/ErrorAlert.jsx';
 import Loading from '../../components/Loading.jsx';
 import Pagination from '../../components/Pagination.jsx';
 import StatusBadge from '../../components/StatusBadge.jsx';
-import { canWithdraw } from '../../utils/applications.js';
+import WithdrawButton from '../../components/WithdrawButton.jsx';
 import { formatCtc, formatDateTime } from '../../utils/format.js';
 
 const PAGE_SIZE = 10;
@@ -20,31 +17,15 @@ export default function MyApplicationsPage() {
   const page = Math.max(Number.parseInt(searchParams.get('page') ?? '1', 10) || 1, 1) - 1;
   const { data, loading, error, reload } = useApi(`/api/students/me/applications?page=${page}&size=${PAGE_SIZE}`);
 
-  // The application the confirm dialog is asking about (null = dialog closed)
-  const [toWithdraw, setToWithdraw] = useState(null);
-  const [withdrawing, setWithdrawing] = useState(false);
+  // The result of the last withdrawal (success message or error), shown above the table
   const [actionError, setActionError] = useState(null);
   const [message, setMessage] = useState(null);
 
-  function openWithdraw(application) {
-    setActionError(null);
-    setMessage(null);
-    setToWithdraw(application);
-  }
-
-  async function confirmWithdraw() {
-    setWithdrawing(true);
-    try {
-      await api.post(`/api/students/me/applications/${toWithdraw.id}/withdraw`);
-      setMessage(`You withdrew from ${toWithdraw.roleTitle} at ${toWithdraw.companyName}.`);
-    } catch (err) {
-      // e.g. 409 "Withdrawal closed on ..." if the deadline passed while the page was open
-      setActionError(toApiError(err));
-    } finally {
-      setWithdrawing(false);
-      setToWithdraw(null);
-      reload(); // show the real statuses now, whatever happened
-    }
+  function handleWithdrawDone({ message: doneMessage, error: doneError }) {
+    setMessage(doneMessage ?? null);
+    // e.g. 409 "Withdrawal closed on ..." if the deadline passed while the page was open
+    setActionError(doneError ?? null);
+    reload(); // show the real statuses now, whatever happened
   }
 
   function goToPage(next) {
@@ -104,16 +85,12 @@ export default function MyApplicationsPage() {
                     </td>
                     <td>{formatDateTime(application.appliedAt)}</td>
                     <td className="actions">
-                      {canWithdraw(application) && (
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-small"
-                          onClick={() => openWithdraw(application)}
-                          disabled={withdrawing || loading}
-                        >
-                          Withdraw
-                        </button>
-                      )}
+                      <WithdrawButton
+                        application={application}
+                        onDone={handleWithdrawDone}
+                        disabled={loading}
+                        className="btn btn-secondary btn-small"
+                      />
                     </td>
                   </tr>
                 ))}
@@ -123,25 +100,6 @@ export default function MyApplicationsPage() {
           <Pagination page={data.page} totalPages={data.totalPages} disabled={loading} onChange={goToPage} />
         </>
       )}
-
-      <ConfirmDialog
-        open={toWithdraw !== null}
-        title="Withdraw this application?"
-        confirmLabel="Yes, withdraw"
-        busyLabel="Withdrawing…"
-        danger
-        busy={withdrawing}
-        onConfirm={confirmWithdraw}
-        onCancel={() => setToWithdraw(null)}
-      >
-        {toWithdraw && (
-          <p>
-            You are withdrawing from <strong>{toWithdraw.roleTitle}</strong> at{' '}
-            <strong>{toWithdraw.companyName}</strong>.{' '}
-            <strong>Withdrawal is final:</strong> you will not be able to apply to this drive again.
-          </p>
-        )}
-      </ConfirmDialog>
     </div>
   );
 }

@@ -7,44 +7,67 @@ import Eligibility from '../../components/Eligibility.jsx';
 import ErrorAlert from '../../components/ErrorAlert.jsx';
 import Loading from '../../components/Loading.jsx';
 import StatusBadge from '../../components/StatusBadge.jsx';
+import WithdrawButton from '../../components/WithdrawButton.jsx';
 import { formatCtc, formatDate, formatDateTime, formatJobType } from '../../utils/format.js';
 
 /**
- * The Apply area. The button shows only when the drive is OPEN, the student is eligible and hasn't applied.
- * The backend checks all of that again: a 422 lists every reason, a 409 says why (e.g. applied in another tab).
+ * The Apply / Withdraw area. Apply shows only when the drive is OPEN, the student is eligible and hasn't
+ * applied; Withdraw only when My applications would show it (the same WithdrawButton and rules).
+ * The backend checks everything again: a 422 lists every reason, a 409 says why (e.g. applied in another tab).
  */
-function ApplySection({ item, onApplied }) {
-  const { drive, eligible, applicationStatus } = item;
+function ApplySection({ item, onChanged }) {
+  const { drive, eligible, applicationId, applicationStatus } = item;
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(false);
+  const [message, setMessage] = useState(null);
 
   async function handleApply() {
     setError(null);
+    setMessage(null);
     setSending(true);
     try {
       await api.post('/api/students/me/applications', { driveId: drive.id });
-      setSuccess(true);
+      setMessage('Applied! You can follow it under My applications.');
     } catch (err) {
       setError(toApiError(err));
     } finally {
       setSending(false);
       // Load the drive again either way, so the page shows the real status and eligibility now
-      onApplied();
+      onChanged();
     }
+  }
+
+  function handleWithdrawDone({ message: doneMessage, error: doneError }) {
+    setMessage(doneMessage ?? null);
+    setError(doneError ?? null);
+    onChanged();
   }
 
   return (
     <section className="card">
       <h2>Your application</h2>
-      {success && <div className="alert alert-success">Applied! You can follow it under My applications.</div>}
+      {message && <div className="alert alert-success">{message}</div>}
       <ErrorAlert error={error} />
 
       {applicationStatus ? (
-        <p>
-          Status: <StatusBadge status={applicationStatus} />{' '}
-          <Link to="/student/applications">Go to My applications</Link>
-        </p>
+        <div className="application-row">
+          <span>
+            Status: <StatusBadge status={applicationStatus} />{' '}
+            <Link to={`/student/applications/${applicationId}`}>View application and rounds</Link>
+          </span>
+          {/* The drive response has everything WithdrawButton needs, under slightly different names */}
+          <WithdrawButton
+            application={{
+              id: applicationId,
+              roleTitle: drive.roleTitle,
+              companyName: drive.companyName,
+              status: applicationStatus,
+              driveStatus: drive.status,
+              registrationDeadline: drive.registrationDeadline,
+            }}
+            onDone={handleWithdrawDone}
+          />
+        </div>
       ) : drive.status !== 'OPEN' ? (
         <p className="muted">This drive is no longer open for applications.</p>
       ) : eligible ? (
@@ -133,7 +156,7 @@ export default function DriveDetailPage() {
       </section>
 
       {/* key: a different drive gets a fresh ApplySection, so an old success or error message never carries over */}
-      <ApplySection key={drive.id} item={item} onApplied={reload} />
+      <ApplySection key={drive.id} item={item} onChanged={reload} />
     </div>
   );
 }

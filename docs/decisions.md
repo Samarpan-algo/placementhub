@@ -1208,7 +1208,7 @@ A 401 from `/api/auth/login` means a wrong email or password, so the login page 
 ## 67. Student drive detail: visible if OPEN, or if the student applied to it
 **Milestone:** 9 · **Date:** 2026-11-02
 
-**Decision:** `GET /api/students/me/drives/{id}` returns the same shape as one browse item (`drive`, `eligible`, `reasons`, `applicationStatus`), built by the same code as browse. The drive is returned if it is OPEN, **or** if the student has an application to it in any status. Everything else (a DRAFT drive, a CLOSED/COMPLETED drive they never applied to, a missing id) is the same 404 `"Drive with id N not found"`. A non-OPEN drive is never eligible, because the EligibilityService "not open" rule adds that reason, so Apply never appears for it.
+**Decision:** `GET /api/students/me/drives/{id}` returns the same shape as one browse item (`drive`, `eligible`, `reasons`, `applicationStatus`), built by the same code as browse. The drive is returned if it is OPEN, **or** if the student has an application to it in any status. Everything else (a DRAFT drive, a CLOSED/COMPLETED drive they never applied to, a missing id) is the same 404 `"Drive with id N not found"`. A non-OPEN drive is never eligible, because the EligibilityService "not open" rule adds that reason, so Apply never appears for it. Browse items and the detail also carry `applicationId` (null if not applied), so the drive page can link to the application and offer Withdraw through the same `WithdrawButton` as My applications.
 
 **Alternatives:**
 - Load the browse list in the frontend and pick the drive out of it (no new endpoint, but it's wasteful, breaks past 100 drives, and has no data for closed drives).
