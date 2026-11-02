@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router';
 import api from '../../api/client.js';
 import { toApiError } from '../../api/errors.js';
 import ErrorAlert from '../../components/ErrorAlert.jsx';
 
-/** Placeholder home (Milestone 9 adds companies, drives, applicants, policies, audit and stats pages). */
+/** Admin home: a one-line stats summary and links to the admin pages (rounds, policies, audit and stats come later). */
 export default function AdminHomePage() {
   const [stats, setStats] = useState(null);
   const [error, setError] = useState(null);
@@ -34,7 +35,10 @@ export default function AdminHomePage() {
           {stats.placedStudents} of {stats.totalStudents} students placed ({stats.placementPercentage}%).
         </p>
       )}
-      <p className="muted">Companies, drives, applicants and policies are coming in the next milestone.</p>
+      <p>
+        Manage <Link to="/admin/companies">companies</Link>.
+      </p>
+      <p className="muted">Rounds, results, policies, the audit log and stats are coming next.</p>
     </div>
   );
 }

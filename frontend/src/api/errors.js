@@ -47,3 +47,33 @@ export function unexpectedResponseError(status) {
     details: [],
   };
 }
+
+/**
+ * Splits a 400's detail lines ("minCgpa: must be less than or equal to 10.00") between the form's fields.
+ * `fields` lists the form's field names. "branches[0]: ..." or "branches[].x: ..." counts as "branches".
+ *
+ * Returns { fieldErrors, error }: fieldErrors = { minCgpa: '...' } for the lines that matched a field, and
+ * error = the same error with only the lines that did NOT match left in details. So every message is shown
+ * once, either under its field or in the top <ErrorAlert />, and none is ever dropped.
+ * Errors that aren't a 400 with details (409, 404, ...) come back unchanged, with no field errors.
+ */
+export function fieldErrorsFrom(apiError, fields) {
+  if (!apiError || apiError.status !== 400 || apiError.details.length === 0) {
+    return { fieldErrors: {}, error: apiError };
+  }
+  const fieldErrors = {};
+  const unmatched = [];
+  for (const line of apiError.details) {
+    const colon = line.indexOf(': ');
+    // "branches[0].x" -> "branches": everything before the first [ or .
+    const field = colon > 0 ? line.slice(0, colon).split(/[[.]/)[0] : null;
+    if (field && fields.includes(field)) {
+      const text = line.slice(colon + 2);
+      fieldErrors[field] = fieldErrors[field] ? `${fieldErrors[field]}; ${text}` : text;
+    } else {
+      unmatched.push(line);
+    }
+  }
+  const message = unmatched.length > 0 ? apiError.message : 'Please fix the highlighted fields.';
+  return { fieldErrors, error: { ...apiError, message, details: unmatched } };
+}

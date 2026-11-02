@@ -7,6 +7,7 @@ import AppLayout from './components/AppLayout.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
 import AdminHomePage from './pages/admin/AdminHomePage.jsx';
+import CompaniesPage from './pages/admin/CompaniesPage.jsx';
 import ApplicationDetailPage from './pages/student/ApplicationDetailPage.jsx';
 import DriveDetailPage from './pages/student/DriveDetailPage.jsx';
 import DrivesPage from './pages/student/DrivesPage.jsx';
@@ -71,6 +72,7 @@ export default function App() {
         }
       >
         <Route index element={<AdminHomePage />} />
+        <Route path="companies" element={<CompaniesPage />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Route>
 

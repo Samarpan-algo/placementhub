@@ -11,8 +11,10 @@ const NAV_LINKS = {
     { to: '/student/applications', label: 'My applications' },
     { to: '/student/profile', label: 'Profile' },
   ],
-  // Milestone 9, Session B adds the admin pages
-  [ROLES.ADMIN]: [{ to: '/admin', label: 'Home', end: true }],
+  [ROLES.ADMIN]: [
+    { to: '/admin', label: 'Home', end: true },
+    { to: '/admin/companies', label: 'Companies' },
+  ],
 };
 
 export default function Header() {
