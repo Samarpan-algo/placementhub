@@ -39,6 +39,7 @@ import com.placementhub.application.ApplicationService;
 import com.placementhub.application.SelectionService;
 import com.placementhub.audit.AuditQueryService;
 import com.placementhub.company.CompanyService;
+import com.placementhub.config.CorsConfig;
 import com.placementhub.config.JwtConfig;
 import com.placementhub.config.JwtProperties;
 import com.placementhub.config.SecurityConfig;
@@ -56,7 +57,7 @@ import com.placementhub.user.Role;
  * Services are mocked (no database): we only care whether security lets the request through.
  */
 @WebMvcTest
-@Import({ SecurityConfig.class, JwtConfig.class, RestAuthenticationEntryPoint.class, RestAccessDeniedHandler.class,
+@Import({ SecurityConfig.class, JwtConfig.class, CorsConfig.class, RestAuthenticationEntryPoint.class, RestAccessDeniedHandler.class,
 		SecurityErrorWriter.class })
 class SecurityAccessTest {
 
@@ -257,6 +258,38 @@ class SecurityAccessTest {
 						"""))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.message").value("Validation failed: password: size must be between 8 and 72"));
+	}
+
+	// ---------------------------------------------------------------------
+	// CORS (default allowed origin: http://localhost:5173)
+	// ---------------------------------------------------------------------
+
+	@Test
+	void preflightFromAllowedOriginIsAnsweredWithoutToken() throws Exception {
+		mvc.perform(request(HttpMethod.OPTIONS, "/api/companies")
+				.header("Origin", "http://localhost:5173")
+				.header("Access-Control-Request-Method", "GET")
+				.header("Access-Control-Request-Headers", "authorization"))
+				.andExpect(status().isOk())
+				.andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"))
+				.andExpect(header().exists("Access-Control-Allow-Methods"));
+	}
+
+	@Test
+	void preflightFromUnknownOriginIsRejected() throws Exception {
+		mvc.perform(request(HttpMethod.OPTIONS, "/api/companies")
+				.header("Origin", "https://evil.example")
+				.header("Access-Control-Request-Method", "GET"))
+				.andExpect(status().isForbidden())
+				.andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
+	}
+
+	@Test
+	void actualRequestFromAllowedOriginGetsCorsHeader() throws Exception {
+		mvc.perform(request(HttpMethod.GET, "/api/companies")
+				.header("Origin", "http://localhost:5173")
+				.header("Authorization", "Bearer " + adminToken))
+				.andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
 	}
 
 	// ---------------------------------------------------------------------

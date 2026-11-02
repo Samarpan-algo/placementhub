@@ -3,6 +3,7 @@ package com.placementhub.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -37,6 +38,9 @@ public class SecurityConfig {
 				// No cookies or sessions: the token travels in the Authorization header, which browsers
 				// never attach automatically, so a forged cross-site request carries no credentials (no CSRF risk)
 				.csrf(AbstractHttpConfigurer::disable)
+				// Uses the corsConfigurationSource bean (CorsConfig). Runs before authentication, so a
+				// browser's preflight OPTIONS request gets its CORS answer instead of a 401
+				.cors(Customizer.withDefaults())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.httpBasic(AbstractHttpConfigurer::disable)
 				.formLogin(AbstractHttpConfigurer::disable)
