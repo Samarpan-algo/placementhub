@@ -21,9 +21,11 @@ import jakarta.validation.Valid;
 public class RoundController {
 
 	private final RoundService roundService;
+	private final RoundResultService roundResultService;
 
-	public RoundController(RoundService roundService) {
+	public RoundController(RoundService roundService, RoundResultService roundResultService) {
 		this.roundService = roundService;
+		this.roundResultService = roundResultService;
 	}
 
 	@PostMapping
@@ -46,6 +48,13 @@ public class RoundController {
 	public RoundResponse update(@PathVariable Long driveId, @PathVariable Long roundId,
 			@Valid @RequestBody RoundUpdateRequest request) {
 		return roundService.update(driveId, roundId, request);
+	}
+
+	/** PUT, because it is an upsert: sending the same sheet twice leaves the same state. */
+	@PutMapping("/{roundId}/results")
+	public RoundResultsResponse saveResults(@PathVariable Long driveId, @PathVariable Long roundId,
+			@Valid @RequestBody RoundResultsRequest request) {
+		return roundResultService.saveResults(driveId, roundId, request);
 	}
 
 }

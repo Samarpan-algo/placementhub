@@ -49,4 +49,46 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
 			""")
 	List<Offer> findSelectedOffers(@Param("studentId") Long studentId);
 
+	// ---------- admin: rounds, selection, completion ----------
+
+	/**
+	 * The distinct students behind the given applications of one drive. A plain id query, so no
+	 * Application entity is loaded yet: callers lock these students first, then load the applications fresh.
+	 */
+	@Query("""
+			SELECT DISTINCT a.student.id FROM Application a
+			WHERE a.id IN :ids AND a.drive.id = :driveId
+			""")
+	List<Long> findStudentIdsByIdInAndDriveId(@Param("ids") Collection<Long> ids, @Param("driveId") Long driveId);
+
+	/** Only applications of this drive: ids from another drive are simply missing from the result. */
+	@EntityGraph(attributePaths = "student")
+	List<Application> findByIdInAndDriveId(Collection<Long> ids, Long driveId);
+
+	/** The distinct students with an application in one of the given statuses on the drive. */
+	@Query("""
+			SELECT DISTINCT a.student.id FROM Application a
+			WHERE a.drive.id = :driveId AND a.status IN :statuses
+			""")
+	List<Long> findStudentIdsByDriveIdAndStatusIn(@Param("driveId") Long driveId,
+			@Param("statuses") Collection<ApplicationStatus> statuses);
+
+	List<Application> findByDriveIdAndStatusIn(Long driveId, Collection<ApplicationStatus> statuses);
+
+	/**
+	 * A student's other pending FULL_TIME applications (APPLIED/SHORTLISTED), with drive and company,
+	 * to re-check placement policies after the student receives an offer.
+	 */
+	@Query("""
+			SELECT a FROM Application a JOIN FETCH a.drive d JOIN FETCH d.company
+			WHERE a.student.id = :studentId
+			  AND a.id <> :excludedId
+			  AND a.status IN (com.placementhub.application.ApplicationStatus.APPLIED,
+			                   com.placementhub.application.ApplicationStatus.SHORTLISTED)
+			  AND d.jobType = com.placementhub.drive.JobType.FULL_TIME
+			ORDER BY a.id
+			""")
+	List<Application> findPendingFullTimeByStudentId(@Param("studentId") Long studentId,
+			@Param("excludedId") Long excludedId);
+
 }

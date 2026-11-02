@@ -41,6 +41,7 @@ import com.placementhub.config.JwtProperties;
 import com.placementhub.config.SecurityConfig;
 import com.placementhub.drive.DriveService;
 import com.placementhub.policy.PolicyService;
+import com.placementhub.round.RoundResultService;
 import com.placementhub.round.RoundService;
 import com.placementhub.student.StudentDriveService;
 import com.placementhub.student.StudentService;
@@ -76,6 +77,8 @@ class SecurityAccessTest {
 	private PolicyService policyService;
 	@MockitoBean
 	private RoundService roundService;
+	@MockitoBean
+	private RoundResultService roundResultService;
 	@MockitoBean
 	private AuthService authService;
 	@MockitoBean
