@@ -1,6 +1,7 @@
 package com.placementhub.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.startsWith;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -257,7 +258,23 @@ class SecurityAccessTest {
 						 "rollNo":"23CSE123","branch":"CSE","graduationYear":2027,"cgpa":8.0,"activeBacklogs":0}
 						"""))
 				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.message").value("Validation failed: password: size must be between 8 and 72"));
+				.andExpect(jsonPath("$.message").value("Validation failed: password: size must be between 8 and 72"))
+				.andExpect(jsonPath("$.details[0]").value("password: size must be between 8 and 72"));
+	}
+
+	@Test
+	void registerWithSeveralInvalidFieldsListsEachInDetailsSortedByField() throws Exception {
+		mvc.perform(request(HttpMethod.POST, "/api/auth/register")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"email":"not-an-email","password":"short","fullName":"New Student",
+						 "rollNo":"23CSE123","branch":"CSE","graduationYear":2027,"cgpa":11.0,"activeBacklogs":0}
+						"""))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.details.length()").value(3))
+				.andExpect(jsonPath("$.details[0]").value(startsWith("cgpa: ")))
+				.andExpect(jsonPath("$.details[1]").value(startsWith("email: ")))
+				.andExpect(jsonPath("$.details[2]").value("password: size must be between 8 and 72"));
 	}
 
 	// ---------------------------------------------------------------------

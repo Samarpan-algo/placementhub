@@ -3,7 +3,6 @@ package com.placementhub.common;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,7 +24,7 @@ import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * Turns every exception into the same JSON shape: {timestamp, status, error, message, path},
- * plus an optional "details" array (422, and 400/409 for batches).
+ * plus an optional "details" array (field validation errors, 422, and 400/409 for batches).
  * Stack traces are logged on the server, never sent to the client.
  */
 @RestControllerAdvice
@@ -48,11 +47,13 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(MethodArgumentNotValidException.class)
 	public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex,
 			HttpServletRequest request) {
-		String message = ex.getBindingResult().getFieldErrors().stream()
+		// One entry per field error, also listed in "details" so a form can show each one on its own line
+		List<String> fieldErrors = ex.getBindingResult().getFieldErrors().stream()
 				.sorted((a, b) -> a.getField().compareTo(b.getField()))
 				.map(GlobalExceptionHandler::formatFieldError)
-				.collect(Collectors.joining("; "));
-		return build(HttpStatus.BAD_REQUEST, "Validation failed: " + message, request);
+				.toList();
+		return build(HttpStatus.BAD_REQUEST, "Validation failed: " + String.join("; ", fieldErrors), fieldErrors,
+				request);
 	}
 
 	@ExceptionHandler(HttpMessageNotReadableException.class)
