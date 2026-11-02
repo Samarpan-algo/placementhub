@@ -149,7 +149,4 @@ applicationStatus, apply (422 + details, race-safe 409) / withdraw (OPEN + befor
 X-Demo-User-Id header (replaced by JWT in M5), 84 unit tests, Postman 76/76.
 M5 done: stateless JWT (Spring Resource Server, HS256, 2h, JWT_SECRET + dev-only fallback warning), student register
 (STUDENT only, 409s) / login (same 401), role rules + JSON 401/403, JwtCurrentUserProvider, 152 tests, Postman 93/93.
-M6 done: policy engine (Strategy, 3 rule beans, offer = SELECTED + FULL_TIME, internships unrestricted), all reasons in
-one 422 on apply and in browse (fixed query count), admin GET/PUT /api/policies (per-type 400s, ONE/DREAM 409 under
-row lock, updated_by from JWT), 228 tests, Postman Policies folder. TODO M7: re-check policies when marking SELECTED
-and decide about other pending FULL_TIME applications (decisions.md #45); audit-log policy changes.
+M6 done: Strategy-pattern policy engine (offer = SELECTED + FULL_TIME) in apply/browse, admin /api/policies (400s, ONE/DREAM 409 under row lock), 228 tests, Postman passed; TODO M7: re-check on SELECTED (decisions #45).
