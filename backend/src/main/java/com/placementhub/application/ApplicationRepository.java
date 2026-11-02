@@ -11,6 +11,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import com.placementhub.policy.Offer;
+
 public interface ApplicationRepository extends JpaRepository<Application, Long> {
 
 	Optional<Application> findByDriveIdAndStudentId(Long driveId, Long studentId);
@@ -33,5 +35,18 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
 			""")
 	List<DriveApplicationStatus> findStatuses(@Param("studentId") Long studentId,
 			@Param("driveIds") Collection<Long> driveIds);
+
+	/**
+	 * One query: every SELECTED application of the student, with company name, CTC and job type.
+	 * Internship selections are included; PolicyEngine keeps only FULL_TIME ones as offers.
+	 */
+	@Query("""
+			SELECT new com.placementhub.policy.Offer(c.name, d.ctcLpa, d.jobType)
+			FROM Application a JOIN a.drive d JOIN d.company c
+			WHERE a.student.id = :studentId
+			  AND a.status = com.placementhub.application.ApplicationStatus.SELECTED
+			ORDER BY a.id
+			""")
+	List<Offer> findSelectedOffers(@Param("studentId") Long studentId);
 
 }
