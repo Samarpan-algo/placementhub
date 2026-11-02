@@ -38,7 +38,8 @@ public class DriveMapper {
 				drive.getStatus(),
 				drive.getBranches().stream().sorted().toList(),
 				drive.getCreatedAt(),
-				drive.getUpdatedAt());
+				drive.getUpdatedAt(),
+				null);
 	}
 
 	private static String blankToNull(String value) {

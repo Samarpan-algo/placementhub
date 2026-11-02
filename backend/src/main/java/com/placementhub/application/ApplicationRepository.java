@@ -95,6 +95,16 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
 
 	List<Application> findByDriveIdAndStatusIn(Long driveId, Collection<ApplicationStatus> statuses);
 
+	/** The same, with the student JOINed: re-checking eligibility reads the student's branch, CGPA and so on. */
+	@EntityGraph(attributePaths = "student")
+	@Query("""
+			SELECT a FROM Application a
+			WHERE a.drive.id = :driveId AND a.status IN :statuses
+			ORDER BY a.id
+			""")
+	List<Application> findWithStudentByDriveIdAndStatusIn(@Param("driveId") Long driveId,
+			@Param("statuses") Collection<ApplicationStatus> statuses);
+
 	/**
 	 * A student's other pending FULL_TIME applications (APPLIED/SHORTLISTED), with drive and company,
 	 * to re-check placement policies after the student receives an offer.

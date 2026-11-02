@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -11,7 +12,11 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.placementhub.application.CriteriaChangeService;
 import com.placementhub.application.SelectionService;
+import com.placementhub.audit.AuditAction;
+import com.placementhub.audit.AuditEntityType;
+import com.placementhub.audit.AuditService;
 import com.placementhub.common.ConflictException;
 import com.placementhub.common.PageResponse;
 import com.placementhub.common.ResourceNotFoundException;
@@ -23,8 +28,10 @@ import com.placementhub.user.UserRepository;
 
 /**
  * Business rules for drives. All status rules live here:
- * ALLOWED_TRANSITIONS, EDITABLE_STATUSES, and checkCanOpen().
+ * ALLOWED_TRANSITIONS, EDITABLE_STATUSES, checkCanOpen(), and "jobType only while DRAFT".
  * Completing a drive also rejects every application still pending (SelectionService.rejectPending).
+ * Editing an OPEN drive's criteria re-checks its pending applications (CriteriaChangeService), and every
+ * edit that changes something is audited (CRITERIA_CHANGED, only the changed fields, old -> new).
  */
 @Service
 public class DriveService {
@@ -44,17 +51,22 @@ public class DriveService {
 	private final CurrentUserProvider currentUserProvider;
 	private final DriveMapper driveMapper;
 	private final SelectionService selectionService;
+	private final CriteriaChangeService criteriaChangeService;
+	private final AuditService auditService;
 	private final Clock clock;
 
 	public DriveService(DriveRepository driveRepository, CompanyRepository companyRepository,
 			UserRepository userRepository, CurrentUserProvider currentUserProvider, DriveMapper driveMapper,
-			SelectionService selectionService, Clock clock) {
+			SelectionService selectionService, CriteriaChangeService criteriaChangeService,
+			AuditService auditService, Clock clock) {
 		this.driveRepository = driveRepository;
 		this.companyRepository = companyRepository;
 		this.userRepository = userRepository;
 		this.currentUserProvider = currentUserProvider;
 		this.driveMapper = driveMapper;
 		this.selectionService = selectionService;
+		this.criteriaChangeService = criteriaChangeService;
+		this.auditService = auditService;
 		this.clock = clock;
 	}
 
@@ -85,19 +97,45 @@ public class DriveService {
 
 	@Transactional
 	public DriveResponse update(Long id, DriveUpdateRequest request) {
-		Drive drive = findOrThrow(id);
+		// 1. Lock the drive first (decision 50): applies to it (FOR SHARE) wait, and so does any status change
+		Drive drive = driveRepository.findByIdForUpdate(id).orElseThrow(() -> ResourceNotFoundException.of("Drive", id));
 		if (!EDITABLE_STATUSES.contains(drive.getStatus())) {
 			throw new ConflictException("Cannot edit a " + drive.getStatus()
 					+ " drive. Only DRAFT or OPEN drives can be edited");
 		}
+		// FULL_TIME vs INTERNSHIP decides what counts as an offer (decision 40): fixed once students can apply
+		if (request.jobType() != drive.getJobType() && drive.getStatus() != DriveStatus.DRAFT) {
+			throw new ConflictException("jobType can be changed only while the drive is DRAFT (status: "
+					+ drive.getStatus() + "): switching between FULL_TIME and INTERNSHIP would change what counts "
+					+ "as an offer for students who already applied");
+		}
+
+		// 2. Apply the edit, remembering the old values
+		Map<String, Object> before = DriveSnapshot.of(drive);
 		driveMapper.applyFields(drive, request);
 		checkDates(drive);
 		if (drive.getStatus() == DriveStatus.OPEN) {
 			checkCanOpen(drive, "Cannot save OPEN drive"); // an OPEN drive must stay valid after edits
 		}
-		// TODO Milestone 7: re-evaluate applications and write an audit log when criteria change
+		Map<String, Object> after = DriveSnapshot.of(drive);
+		Map<String, Object> oldValues = DriveSnapshot.changed(before, after);
+		if (oldValues.isEmpty()) {
+			return driveMapper.toResponse(drive).withApplicationsMadeIneligible(0); // nothing changed, no audit
+		}
+
+		// 3. New criteria on an OPEN drive: re-check its pending applications (locks the students)
+		boolean criteriaChanged = oldValues.keySet().stream().anyMatch(DriveSnapshot.ELIGIBILITY_FIELDS::contains);
+		int madeIneligible = (criteriaChanged && drive.getStatus() == DriveStatus.OPEN)
+				? criteriaChangeService.reevaluate(drive)
+				: 0;
+
+		// 4. Audit the edit itself: only the changed fields, old -> new, plus its effect
+		Map<String, Object> newValues = new LinkedHashMap<>(DriveSnapshot.changed(after, before));
+		newValues.put("applicationsMadeIneligible", madeIneligible);
+		auditService.record(AuditEntityType.DRIVE, drive.getId(), AuditAction.CRITERIA_CHANGED, oldValues, newValues);
+
 		driveRepository.flush(); // runs @PreUpdate so the response has the new updatedAt
-		return driveMapper.toResponse(drive);
+		return driveMapper.toResponse(drive).withApplicationsMadeIneligible(madeIneligible);
 	}
 
 	// ---------- status transitions ----------
