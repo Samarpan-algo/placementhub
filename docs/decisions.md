@@ -664,3 +664,128 @@ A naive `if (user == null) return 401` returns noticeably faster for unknown ema
 - **No logout or revocation:** logging out means the client discards its token. A stolen token stays valid until it expires, which is why expiry is 2 hours. Refresh tokens and revocation lists are v2.
 - **No password change or reset** (v2, needs email).
 - **A token issued before a user is deleted stays valid until expiry.** Services still return 404 for a missing profile.
+
+---
+
+## 40. What counts as an offer, and when policies apply
+**Milestone:** 6 · **Date:** 2026-11-02
+
+**Decision:**
+- An **offer** is an application with status `SELECTED` in a `FULL_TIME` drive.
+- Policies only restrict applying to **`FULL_TIME` drives**. Internship drives are never blocked by a policy, though eligibility still applies.
+- One query (`ApplicationRepository.findSelectedOffers`) loads every `SELECTED` application, internships included, as a small `Offer(companyName, ctcLpa, jobType)` record. `PolicyEngine` then keeps only the `FULL_TIME` ones.
+- The rules:
+  - `ONE_OFFER`: blocked once the student holds 1 offer.
+  - `MAX_OFFERS` (N): blocked once offers ≥ N.
+  - `DREAM_OFFER` (T): allowed with 0 offers, or with exactly 1 offer below T when the new drive's CTC ≥ T (the one upgrade). Everything else is blocked: the offer is already ≥ T, the new drive is below T, or the student holds 2+ offers.
+- Every message names the real company and CTC, e.g. "Dream-offer policy: you hold an offer of 5.00 LPA from Kaveri Analytics; you may only apply to drives of 10.00 LPA or more (this drive offers 6.50 LPA)".
+
+**Alternatives:**
+- Count internship selections as offers too.
+- Filter by job type in the SQL query.
+
+**Why:** In Indian placements, an internship selection shouldn't use up a student's full-time chances. Filtering in Java rather than SQL keeps the offer definition in one place (`PolicyEngine`) and makes "internship offers are not counted" a plain unit test. Loading the few extra internship rows costs nothing. CTCs are compared with `compareTo`, so 10 and 10.00 are equal: a drive *exactly* at the threshold counts as an upgrade, and an offer exactly at the threshold counts as a dream offer.
+
+---
+
+## 41. `PolicyRule` signature: settings in, `StudentProfile` out, `Offer` instead of `Application`
+**Milestone:** 6 · **Date:** 2026-11-02
+
+**Decision:** The interface in CLAUDE.md changed from
+`PolicyResult evaluate(StudentProfile s, Drive d, List<Application> offers)` to:
+
+```java
+public interface PolicyRule {
+    PolicyType type();
+    PolicyResult evaluate(PolicySettings settings, Drive drive, List<Offer> offers);
+}
+```
+
+- `PolicySettings(ctcThresholdLpa, maxOffers)` is copied from the policy's DB row.
+- Each rule is a stateless Spring `@Component`. `PolicyEngine` receives all of them as `List<PolicyRule>`, maps them by `type()`, and fails at startup if a type has no rule or two.
+
+**Alternatives:**
+- Keep the original signature and put the settings in each rule's constructor (`new DreamOfferRule(threshold)`), built by a factory.
+- Pass the whole `PlacementPolicy` entity.
+
+**Why:**
+- **Settings as a parameter:** the threshold and limit live in the DB and admins change them at runtime, so they must come in on every call. A constructor factory would need a `switch` that you edit for every new rule. With beans looked up by type, a 4th rule is one new class, which is the point of the Strategy pattern.
+- **No `StudentProfile`:** no rule reads it, because the offers already belong to the student. An unused parameter would mislead readers.
+- **`Offer` instead of `Application`:** messages need the company name and CTC. A constructor-expression query loads exactly those, with no lazy entities, so there's no `LazyInitializationException` and no N+1. It's also trivial to build in tests.
+- **A small record instead of the entity:** it keeps rules independent of JPA and easy to test.
+
+---
+
+## 42. Eligibility and policies combined: one 422, one `eligible` flag
+**Milestone:** 6 · **Date:** 2026-11-02
+
+**Decision:**
+- **Apply:** the order is still duplicate check (409) → eligibility → policies → insert. If eligibility *or* policies fail, there's a single 422 with **all** reasons, eligibility first. The message is "You are not eligible for this drive" when eligibility fails, otherwise "This application is blocked by a placement policy". No row is created (decision 11).
+- **Browse:** `eligible` = eligibility passed AND no policy blocked. `reasons` = eligibility reasons + policy reasons. The "eligible only" filter therefore also hides policy-blocked drives. The response shape is unchanged.
+- **The engine:** every active rule must allow. It reports *every* blocking reason, in a fixed order (ONE, DREAM, MAX), like `EligibilityService`.
+- **Query count:**
+  - Browse loads the active policies and the student's offers **once** for all drives: at most 5 queries, however many drives there are. The offer query is skipped when no policy is active.
+  - Apply runs no policy queries for internship drives, or when no policy is active.
+
+**Alternatives:**
+- Two separate 422s (eligibility first, policies only once eligible).
+- A separate `policyBlocked` field in browse.
+
+**Why:** Browse and apply should never disagree. If browse lists two reasons, apply should give the same two. Showing everything at once saves the student from fixing one problem only to discover the next. `PolicyEngine` is pure logic, which is what lets browse load the data once and evaluate it per drive in memory.
+
+---
+
+## 43. ONE_OFFER and DREAM_OFFER can't both be active (409), checked under a row lock
+**Milestone:** 6 · **Date:** 2026-11-02
+
+**Decision:**
+- Activating `ONE_OFFER` while `DREAM_OFFER` is active, or the reverse, returns **409** "Cannot activate ONE_OFFER while DREAM_OFFER is active: the two policies contradict each other. Deactivate DREAM_OFFER first". Deactivating is always allowed. `MAX_OFFERS` can be combined with either.
+- `PolicyService.update` first locks all policy rows with `SELECT … FOR UPDATE` (`@Lock(PESSIMISTIC_WRITE)`, `ORDER BY id`). The lock is held until commit.
+
+**Alternatives:**
+- Let the engine resolve the overlap (for example, "ONE_OFFER wins").
+- A DB trigger or constraint across rows.
+- Check without a lock.
+
+**Why:**
+- **Why forbid it:** ONE_OFFER forbids exactly the upgrade DREAM_OFFER allows. If both were on, the strictest rule would silently win, and the TPO would think dream offers were possible. Refusing the setting with a clear message is more honest than resolving it silently.
+- **Why lock:** without a lock, two admins could activate ONE_OFFER and DREAM_OFFER at the same moment, and each request would see the other policy as still inactive. With the lock, the second admin waits for the first commit and then sees the conflict.
+- **Why `ORDER BY id`:** every transaction locks the rows in the same order, so two updates can't deadlock.
+- **Why not a DB constraint:** a `CHECK` can't compare two rows, and a trigger would hide business rules in SQL.
+
+---
+
+## 44. Per-type policy settings: required, or rejected if they don't apply
+**Milestone:** 6 · **Date:** 2026-11-02
+
+**Decision:** `PUT /api/policies/{type}` with `{active, ctcThresholdLpa, maxOffers}` replaces that policy's settings (TPO_ADMIN only).
+- **Bean Validation:** `active` is required. A threshold must be > 0, with at most 2 decimals and at most 4 digits before the point (`NUMERIC(6,2)`). `maxOffers` must be 1–20 (the cap keeps it well inside `SMALLINT`).
+- **Per-type checks in `PolicyService`** (new `BadRequestException` → 400):
+  - `DREAM_OFFER` requires `ctcThresholdLpa`.
+  - `MAX_OFFERS` requires `maxOffers`.
+  - A setting that **doesn't apply** to the type (e.g. `maxOffers` on `ONE_OFFER`) is rejected: "maxOffers does not apply to ONE_OFFER; leave it out".
+- An unknown type in the URL is a 400 (the existing type-mismatch handler).
+- `updated_by` comes from the JWT user (`CurrentUserProvider` + `getReferenceById`). The service sets `updated_at` from the injected `Clock` on every save, so even a no-change PUT records who saved last.
+- Rows are only updated, never created or deleted: there's exactly one per type, seeded in V2.
+
+**Alternatives:**
+- Silently ignore fields that don't apply.
+- A custom class-level validation annotation.
+
+**Why:** If an admin sends `maxOffers` for ONE_OFFER and it's silently dropped, they'll believe a limit exists when it doesn't. A 400 shows the mistake immediately. A switch in the service is simpler to read and test than a custom validator. The DB `CHECK`s (decision 6) remain the backstop.
+
+**TODO Milestone 7:** write an audit-log entry for each policy change.
+
+---
+
+## 45. Known limitation + TODO Milestone 7: policies are checked only at apply time
+**Milestone:** 6 · **Date:** 2026-11-02
+
+**Limitation:** policies are enforced when a student **applies**, but offers are created **later**, when an admin marks an application `SELECTED` (Milestone 7). A student with 0 offers can apply to several FULL_TIME drives, every apply allowed, and then get selected by two of them. They end up holding more offers than ONE_OFFER, DREAM_OFFER or MAX_OFFERS allows. The apply-time check can't prevent this, because at apply time no offer exists yet.
+
+**Why we accept it for now:** there's no API to mark `SELECTED` until Milestone 7, so the gap can't happen through the app yet. The fix belongs where offers are created.
+
+**TODO Milestone 7 (required):**
+1. **Re-check policies when marking `SELECTED`.** Before an application becomes `SELECTED`, run `PolicyEngine` with the student's current offers *plus* the new one. Decide whether a policy violation blocks the selection (409/422 with the reason) or needs an explicit admin override.
+2. **Decide what happens to the student's other pending FULL_TIME applications** (`APPLIED`/`SHORTLISTED`) once they get an offer. Options: leave them, mark the ones the policy now forbids as `INELIGIBLE` with a `status_reason` (as for criteria changes, decision 11), or flag them for the TPO. The choice needs your sign-off.
+3. **Audit-log both changes**, and make the check race-safe if two selections for the same student can be made at once.

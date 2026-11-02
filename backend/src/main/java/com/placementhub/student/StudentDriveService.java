@@ -2,6 +2,7 @@ package com.placementhub.student;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -21,11 +22,16 @@ import com.placementhub.drive.Drive;
 import com.placementhub.drive.DriveMapper;
 import com.placementhub.drive.DriveRepository;
 import com.placementhub.drive.DriveStatus;
+import com.placementhub.policy.Offer;
+import com.placementhub.policy.PlacementPolicy;
+import com.placementhub.policy.PlacementPolicyRepository;
+import com.placementhub.policy.PolicyEngine;
+import com.placementhub.policy.PolicyEvaluation;
 
 /**
- * OPEN drives as seen by the current student, each with an eligibility result and the
- * student's application status (null if not applied).
- * Eligibility is computed in Java (EligibilityService is the single source of truth), so
+ * OPEN drives as seen by the current student, each with an eligibility result (criteria AND
+ * placement policies) and the student's application status (null if not applied).
+ * Eligibility is computed in Java (EligibilityService and PolicyEngine are the single source of truth), so
  * filtering and paging happen in memory over all OPEN drives. Fine for tens or a few hundred
  * OPEN drives; see decisions.md.
  */
@@ -37,16 +43,21 @@ public class StudentDriveService {
 	private final DriveMapper driveMapper;
 	private final EligibilityService eligibilityService;
 	private final ApplicationRepository applicationRepository;
+	private final PlacementPolicyRepository policyRepository;
+	private final PolicyEngine policyEngine;
 	private final Clock clock;
 
 	public StudentDriveService(CurrentStudentResolver currentStudentResolver, DriveRepository driveRepository,
 			DriveMapper driveMapper, EligibilityService eligibilityService,
-			ApplicationRepository applicationRepository, Clock clock) {
+			ApplicationRepository applicationRepository, PlacementPolicyRepository policyRepository,
+			PolicyEngine policyEngine, Clock clock) {
 		this.currentStudentResolver = currentStudentResolver;
 		this.driveRepository = driveRepository;
 		this.driveMapper = driveMapper;
 		this.eligibilityService = eligibilityService;
 		this.applicationRepository = applicationRepository;
+		this.policyRepository = policyRepository;
+		this.policyEngine = policyEngine;
 		this.clock = clock;
 	}
 
@@ -59,11 +70,21 @@ public class StudentDriveService {
 		List<Drive> drives = driveRepository.findByStatusOrderByRegistrationDeadlineAsc(DriveStatus.OPEN);
 		// +1 query: the student's application status on all of these drives at once
 		Map<Long, ApplicationStatus> statusByDriveId = applicationStatuses(student, drives);
+		// +1 query: active policies; +1 query: the student's offers (skipped if no policy is active).
+		// Loaded once for all drives, so the query count stays fixed (at most 5) however many drives there are.
+		List<PlacementPolicy> activePolicies = policyRepository.findByActiveTrue();
+		List<Offer> offers = activePolicies.isEmpty()
+				? List.of()
+				: applicationRepository.findSelectedOffers(student.getId());
 
 		List<StudentDriveResponse> items = drives.stream()
 				.map(drive -> {
-					EligibilityResult result = eligibilityService.evaluate(student, drive, now);
-					return new StudentDriveResponse(driveMapper.toResponse(drive), result.eligible(), result.reasons(),
+					EligibilityResult eligibility = eligibilityService.evaluate(student, drive, now);
+					PolicyEvaluation policies = policyEngine.evaluate(activePolicies, drive, offers);
+					List<String> reasons = new ArrayList<>(eligibility.reasons());
+					reasons.addAll(policies.reasons());
+					return new StudentDriveResponse(driveMapper.toResponse(drive),
+							eligibility.eligible() && policies.allowed(), List.copyOf(reasons),
 							statusByDriveId.get(drive.getId()));
 				})
 				.filter(item -> !eligibleOnly || item.eligible())

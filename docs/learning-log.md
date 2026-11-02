@@ -148,3 +148,24 @@ Short notes, in plain words, on what I learned in each milestone.
 - **Normalise input in the record's compact constructor**, so it happens *before* validation (`" A@B.com "` → `"a@b.com"`).
 - **Read errors before fixing:** the 401 bodies looked empty in PowerShell, but `curl -i` showed `Content-Length: 142`. The problem was the client, not my code.
 - **Programming to an interface paid off:** swapping the header for JWT changed one class, and no service or service test changed.
+
+---
+
+## Milestone 6: Placement Policy Engine (2026-11-02)
+
+**What I built:**
+- Three policy rules (`ONE_OFFER`, `DREAM_OFFER`, `MAX_OFFERS`) using the Strategy pattern, plus a `PolicyEngine` that runs every active rule.
+- Policies plugged into apply (one 422 with every reason) and into the student browse list.
+- Admin endpoints `GET /api/policies` and `PUT /api/policies/{type}`, with per-type validation and a 409 when ONE_OFFER and DREAM_OFFER would both be active.
+- 76 new tests (228 in total), and a Policies folder in Postman.
+
+**What I learned:**
+- **The Strategy pattern in Spring:** each rule is its own `@Component` implementing `PolicyRule`. Spring injects them all as a `List<PolicyRule>`, and the engine picks one by `type()`. Adding a rule means adding a class; nothing else changes.
+- **Interfaces should fit the data:** the first signature had no place for the threshold or limit, and took a `StudentProfile` no rule used. Passing `PolicySettings` in and leaving the profile out made every rule simpler to write and test.
+- **Fail fast at startup:** the engine checks that every `PolicyType` has exactly one rule bean. A missing rule crashes the app on boot, not on some student's apply weeks later.
+- **Load once, evaluate many times:** browse loads the policies and offers *once* and checks every drive in memory, because the engine is pure logic. The query count stays fixed however many drives there are, and a unit test proves `findSelectedOffers` is called exactly once.
+- **Boundaries need their own tests:** "≥ threshold" and "≥ limit" are where bugs hide. I tested a CTC of exactly 10 vs 10.00 (`compareTo`, not `equals`), 9.99, and offers exactly equal to the limit.
+- **`SELECT … FOR UPDATE` for check-then-write between rows:** two admins could each see the other policy as inactive and both activate theirs. Locking the rows (in a fixed order, so there's no deadlock) makes the second request wait and then see the conflict. A UNIQUE constraint can't do this, because the rule spans two rows.
+- **Reject what doesn't apply instead of ignoring it:** silently dropping `maxOffers` on ONE_OFFER would make an admin think a limit exists. A 400 tells them right away.
+- **Know where a rule *can't* be enforced:** policies are checked at apply time, but offers are created later when an admin marks SELECTED. A student can apply to two drives and be selected by both. That's written down as a known limitation, and Milestone 7 must re-check when marking SELECTED.
+- **Demo data with SQL, then clean up:** there's no API to mark SELECTED yet, so I inserted one SELECTED row with psql, saw the real 422 messages, and then deleted it and restored the policy rows exactly.

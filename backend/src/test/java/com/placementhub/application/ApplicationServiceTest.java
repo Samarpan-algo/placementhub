@@ -1,5 +1,8 @@
 package com.placementhub.application;
 
+import static com.placementhub.policy.PolicyFixtures.dreamOffer;
+import static com.placementhub.policy.PolicyFixtures.fullTimeOffer;
+import static com.placementhub.policy.PolicyFixtures.oneOffer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -13,6 +16,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -37,6 +41,8 @@ import com.placementhub.drive.Drive;
 import com.placementhub.drive.DriveRepository;
 import com.placementhub.drive.DriveStatus;
 import com.placementhub.drive.JobType;
+import com.placementhub.policy.PlacementPolicyRepository;
+import com.placementhub.policy.PolicyFixtures;
 import com.placementhub.student.CurrentStudentResolver;
 import com.placementhub.student.StudentProfile;
 import com.placementhub.user.Role;
@@ -56,6 +62,8 @@ class ApplicationServiceTest {
 	private DriveRepository driveRepository;
 	@Mock
 	private ApplicationRepository applicationRepository;
+	@Mock
+	private PlacementPolicyRepository policyRepository;
 
 	private ApplicationService service;
 	private StudentProfile aarav;
@@ -64,7 +72,8 @@ class ApplicationServiceTest {
 	@BeforeEach
 	void setUp() {
 		service = new ApplicationService(currentStudentResolver, driveRepository, applicationRepository,
-				new EligibilityService(), new ApplicationMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
+				new EligibilityService(), policyRepository, PolicyFixtures.engine(), new ApplicationMapper(),
+				Clock.fixed(NOW, ZoneOffset.UTC));
 
 		// Aarav: CSE, 8.70, 0 backlogs, 2027 -> eligible for the drive below
 		aarav = new StudentProfile(new User("aarav.sharma@student.placementhub.dev", "hash", Role.STUDENT),
@@ -207,6 +216,85 @@ class ApplicationServiceTest {
 			when(applicationRepository.saveAndFlush(any(Application.class))).thenThrow(other);
 
 			assertThatThrownBy(() -> service.apply(new ApplyRequest(DRIVE_ID))).isSameAs(other);
+		}
+
+	}
+
+	// =====================================================================
+	// apply: placement policies
+	// =====================================================================
+
+	@Nested
+	class ApplyWithPolicies {
+
+		@BeforeEach
+		void eligibleStudentAndNoEarlierApplication() {
+			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID)).thenReturn(Optional.empty());
+		}
+
+		@Test
+		void blockedByPolicyGets422WithTheReasonAndNothingIsSaved() {
+			when(policyRepository.findByActiveTrue()).thenReturn(List.of(oneOffer(true)));
+			when(applicationRepository.findSelectedOffers(STUDENT_ID))
+					.thenReturn(List.of(fullTimeOffer("Kaveri Analytics", "6.50")));
+
+			assertThatThrownBy(() -> service.apply(new ApplyRequest(DRIVE_ID)))
+					.isInstanceOfSatisfying(UnprocessableEntityException.class, ex -> {
+						assertThat(ex.getMessage()).isEqualTo("This application is blocked by a placement policy");
+						assertThat(ex.getDetails()).containsExactly("One-offer policy: you already hold an offer of "
+								+ "6.50 LPA from Kaveri Analytics; students with an offer cannot apply to more "
+								+ "full-time drives");
+					});
+			verify(applicationRepository, never()).saveAndFlush(any());
+		}
+
+		@Test
+		void ineligibleAndBlockedGivesOne422WithEveryReasonEligibilityFirst() {
+			drive.setMinCgpa(new BigDecimal("9.00"));
+			when(policyRepository.findByActiveTrue()).thenReturn(List.of(dreamOffer(true, "15.00")));
+			when(applicationRepository.findSelectedOffers(STUDENT_ID))
+					.thenReturn(List.of(fullTimeOffer("Kaveri Analytics", "6.00")));
+
+			assertThatThrownBy(() -> service.apply(new ApplyRequest(DRIVE_ID)))
+					.isInstanceOfSatisfying(UnprocessableEntityException.class, ex -> {
+						assertThat(ex.getMessage()).isEqualTo("You are not eligible for this drive");
+						assertThat(ex.getDetails()).containsExactly(
+								"Minimum CGPA is 9.00; yours is 8.70",
+								"Dream-offer policy: you hold an offer of 6.00 LPA from Kaveri Analytics; you may "
+										+ "only apply to drives of 15.00 LPA or more (this drive offers 12.00 LPA)");
+					});
+			verify(applicationRepository, never()).saveAndFlush(any());
+		}
+
+		@Test
+		void dreamUpgradeIsAllowedAndSaved() {
+			// one 6.00 offer, threshold 10, this drive pays 12.00 -> the one allowed upgrade
+			when(policyRepository.findByActiveTrue()).thenReturn(List.of(dreamOffer(true, "10.00")));
+			when(applicationRepository.findSelectedOffers(STUDENT_ID))
+					.thenReturn(List.of(fullTimeOffer("Kaveri Analytics", "6.00")));
+			when(applicationRepository.saveAndFlush(any(Application.class))).thenAnswer(inv -> inv.getArgument(0));
+
+			assertThat(service.apply(new ApplyRequest(DRIVE_ID)).status()).isEqualTo(ApplicationStatus.APPLIED);
+		}
+
+		@Test
+		void internshipDriveSkipsThePolicyQueriesEntirely() {
+			drive.setJobType(JobType.INTERNSHIP);
+			when(applicationRepository.saveAndFlush(any(Application.class))).thenAnswer(inv -> inv.getArgument(0));
+
+			assertThat(service.apply(new ApplyRequest(DRIVE_ID)).status()).isEqualTo(ApplicationStatus.APPLIED);
+			verify(policyRepository, never()).findByActiveTrue();
+			verify(applicationRepository, never()).findSelectedOffers(any());
+		}
+
+		@Test
+		void noActivePolicySkipsTheOfferQuery() {
+			when(policyRepository.findByActiveTrue()).thenReturn(List.of());
+			when(applicationRepository.saveAndFlush(any(Application.class))).thenAnswer(inv -> inv.getArgument(0));
+
+			assertThat(service.apply(new ApplyRequest(DRIVE_ID)).status()).isEqualTo(ApplicationStatus.APPLIED);
+			verify(applicationRepository, never()).findSelectedOffers(any());
 		}
 
 	}

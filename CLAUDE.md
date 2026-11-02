@@ -61,7 +61,8 @@ Most tier-2/3 colleges run placements through WhatsApp, Google Forms, and Excel.
 
 **Edge features (the "novelty")**
 1. **Placement Policy Engine:** configurable rules enforced on every application, each returning allowed/blocked plus a reason. Implement with the Strategy pattern:
-   - `interface PolicyRule { PolicyResult evaluate(StudentProfile s, Drive d, List<Application> offers); }`
+   - `interface PolicyRule { PolicyType type(); PolicyResult evaluate(PolicySettings settings, Drive drive, List<Offer> offers); }`
+     (Changed in M6: settings such as the threshold and limit come from the DB at runtime; no rule needs `StudentProfile`; `Offer` is a small record with the company and CTC, not a lazy entity. See decisions.md #41.)
    - Rules: `ONE_OFFER`, `DREAM_OFFER` (one upgrade allowed if the new CTC ≥ threshold), `MAX_OFFERS`
 2. **Criteria change handling:** when an admin edits drive criteria, re-evaluate eligibility and record the change in the audit log.
 3. **Audit log:** record drive criteria edits and application status changes (who, what, old → new, when).
@@ -138,7 +139,7 @@ Each milestone lists what "done" means.
 
 ## Current status
 <!-- I'll update this line as I go -->
-Milestone: 6 (not started). M1 done: Docker Postgres 17, Spring Boot 4.1.2 skeleton,
+Milestone: 7 (not started). M1 done: Docker Postgres 17, Spring Boot 4.1.2 skeleton,
 /api/health with DB check, README v0. M2 done: Flyway V1 schema (10 tables, CHECKs,
 FK indexes, INELIGIBLE + status_reason) and V2 demo seed (1 admin, 6 students, 3 companies, 5 drives, policies).
 M3 done: entities (ddl-auto validate), global error handler, PageResponse, Companies + Drives CRUD
@@ -148,3 +149,4 @@ applicationStatus, apply (422 + details, race-safe 409) / withdraw (OPEN + befor
 X-Demo-User-Id header (replaced by JWT in M5), 84 unit tests, Postman 76/76.
 M5 done: stateless JWT (Spring Resource Server, HS256, 2h, JWT_SECRET + dev-only fallback warning), student register
 (STUDENT only, 409s) / login (same 401), role rules + JSON 401/403, JwtCurrentUserProvider, 152 tests, Postman 93/93.
+M6 done: Strategy-pattern policy engine (offer = SELECTED + FULL_TIME) in apply/browse, admin /api/policies (400s, ONE/DREAM 409 under row lock), 228 tests, Postman passed; TODO M7: re-check on SELECTED (decisions #45).
