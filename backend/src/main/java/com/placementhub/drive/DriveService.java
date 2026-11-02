@@ -2,7 +2,6 @@ package com.placementhub.drive;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -20,6 +19,7 @@ import com.placementhub.audit.AuditService;
 import com.placementhub.common.ConflictException;
 import com.placementhub.common.PageResponse;
 import com.placementhub.common.ResourceNotFoundException;
+import com.placementhub.common.StudentTimeFormat;
 import com.placementhub.company.Company;
 import com.placementhub.company.CompanyRepository;
 import com.placementhub.user.CurrentUserProvider;
@@ -188,9 +188,13 @@ public class DriveService {
 		}
 	}
 
+	/**
+	 * driveDate is a calendar day in India, so the deadline is turned into an IST date before comparing.
+	 * (With UTC, a deadline of 3 Dec 02:00 IST is still 2 Dec, and a 2 Dec drive date slipped through.)
+	 */
 	private static void checkDates(Drive drive) {
 		if (drive.getDriveDate() != null
-				&& drive.getDriveDate().isBefore(drive.getRegistrationDeadline().atZone(ZoneOffset.UTC).toLocalDate())) {
+				&& drive.getDriveDate().isBefore(drive.getRegistrationDeadline().atZone(StudentTimeFormat.IST).toLocalDate())) {
 			throw new ConflictException("Drive date cannot be before the registration deadline");
 		}
 	}

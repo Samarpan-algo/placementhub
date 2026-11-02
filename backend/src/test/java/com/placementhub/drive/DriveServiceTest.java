@@ -533,6 +533,37 @@ class DriveServiceTest {
 			verify(driveRepository, never()).save(any());
 		}
 
+		/** 3 Dec 02:00 IST = 2 Dec 20:30 UTC: still 2 Dec in UTC, but already 3 Dec in India. */
+		private static final Instant DEADLINE_3_DEC_2AM_IST = Instant.parse("2026-12-02T20:30:00Z");
+
+		@Test
+		void driveDateIsComparedWithTheDeadlineDayInIstNotUtc() {
+			when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
+			when(currentUserProvider.currentUserId()).thenReturn(42L);
+			when(userRepository.getReferenceById(42L)).thenReturn(admin);
+
+			// 2 Dec is the day BEFORE the deadline in IST, even though it is the deadline's UTC day
+			assertThatThrownBy(() -> driveService.create(
+					createRequest(1L, DEADLINE_3_DEC_2AM_IST, LocalDate.of(2026, 12, 2))))
+					.isInstanceOf(ConflictException.class)
+					.hasMessage("Drive date cannot be before the registration deadline");
+			verify(driveRepository, never()).save(any());
+		}
+
+		@Test
+		void driveDateOnTheDeadlineDayInIstIsAccepted() {
+			when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
+			when(currentUserProvider.currentUserId()).thenReturn(42L);
+			when(userRepository.getReferenceById(42L)).thenReturn(admin);
+			when(driveRepository.save(any(Drive.class))).thenAnswer(inv -> inv.getArgument(0));
+
+			DriveResponse response = driveService.create(
+					createRequest(1L, DEADLINE_3_DEC_2AM_IST, LocalDate.of(2026, 12, 3)));
+
+			assertThat(response.driveDate()).isEqualTo(LocalDate.of(2026, 12, 3));
+			verify(driveRepository).save(any(Drive.class));
+		}
+
 	}
 
 	// ---------------------------------------------------------------------
@@ -569,8 +600,12 @@ class DriveServiceTest {
 	}
 
 	private static DriveCreateRequest createRequest(Long companyId, LocalDate driveDate) {
+		return createRequest(companyId, FUTURE, driveDate);
+	}
+
+	private static DriveCreateRequest createRequest(Long companyId, Instant deadline, LocalDate driveDate) {
 		return new DriveCreateRequest(companyId, "Software Engineer", JobType.FULL_TIME, new BigDecimal("12.00"),
-				"Bengaluru", null, new BigDecimal("7.50"), 0, 2027, FUTURE, driveDate, Set.of(Branch.IT, Branch.CSE));
+				"Bengaluru", null, new BigDecimal("7.50"), 0, 2027, deadline, driveDate, Set.of(Branch.IT, Branch.CSE));
 	}
 
 }
