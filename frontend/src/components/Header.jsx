@@ -1,6 +1,19 @@
-import { useNavigate } from 'react-router';
+import { NavLink, useNavigate } from 'react-router';
 import { useAuth } from '../auth/AuthContext.jsx';
-import { ROLES } from '../auth/roles.js';
+import { homePathFor, ROLES } from '../auth/roles.js';
+
+// The links each role sees. `end` = active only on exactly that URL, so "Home" (/student)
+// isn't highlighted on every /student/... page.
+const NAV_LINKS = {
+  [ROLES.STUDENT]: [
+    { to: '/student', label: 'Home', end: true },
+    { to: '/student/drives', label: 'Drives' },
+    { to: '/student/applications', label: 'My applications' },
+    { to: '/student/profile', label: 'Profile' },
+  ],
+  // Milestone 9, Session B adds the admin pages
+  [ROLES.ADMIN]: [{ to: '/admin', label: 'Home', end: true }],
+};
 
 export default function Header() {
   const { user, logout } = useAuth();
@@ -14,7 +27,17 @@ export default function Header() {
 
   return (
     <header className="header">
-      <span className="header-brand">PlacementHub</span>
+      <NavLink to={homePathFor(user.role)} className="header-brand">
+        PlacementHub
+      </NavLink>
+      {/* NavLink is a <Link> that knows whether its URL is the current page: it adds the "active" class */}
+      <nav className="header-nav">
+        {(NAV_LINKS[user.role] ?? []).map((link) => (
+          <NavLink key={link.to} to={link.to} end={link.end} className="nav-link">
+            {link.label}
+          </NavLink>
+        ))}
+      </nav>
       <div className="header-user">
         <span>
           {user.email} ({user.role === ROLES.ADMIN ? 'TPO admin' : 'Student'})

@@ -25,5 +25,25 @@ export function toApiError(error) {
   if (response.status >= 500) {
     return { status: response.status, message: 'The server is not responding. Is the backend running?', details: [] };
   }
+  // A 404 without our JSON came from the dev server itself, not the backend: the /api proxy isn't active
+  if (response.status === 404) {
+    return unexpectedResponseError(404);
+  }
   return { status: response.status, message: `Request failed (HTTP ${response.status}).`, details: [] };
+}
+
+/** True for a JSON object or array (what our API returns), false for HTML, plain text or an empty body. */
+export function isApiJson(data) {
+  return data !== null && typeof data === 'object';
+}
+
+/** The answer didn't come from our backend (e.g. the dev server answered itself). See decisions.md #68. */
+export function unexpectedResponseError(status) {
+  return {
+    status,
+    message:
+      `Unexpected answer from the server (HTTP ${status}, not the API's JSON). ` +
+      'Is the backend running? In dev, restart "npm run dev" so the /api proxy is active.',
+    details: [],
+  };
 }

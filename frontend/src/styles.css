@@ -68,6 +68,7 @@ h2 {
 
 .header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
@@ -79,6 +80,31 @@ h2 {
 .header-brand {
   font-weight: 700;
   color: var(--color-primary);
+  text-decoration: none;
+}
+
+.header-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  flex: 1;
+}
+
+.nav-link {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.nav-link:hover {
+  background: var(--color-bg);
+}
+
+/* NavLink adds "active" to the link of the current page */
+.nav-link.active {
+  background: var(--color-primary);
+  color: #fff;
 }
 
 .header-user {
@@ -175,6 +201,20 @@ h2 {
   color: var(--color-text);
 }
 
+.btn-danger {
+  background: var(--color-error);
+  color: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #991b1b;
+}
+
+.btn-small {
+  padding: 2px var(--space-3);
+  font-size: 0.85rem;
+}
+
 .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -262,4 +302,107 @@ h2 {
   font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
+}
+
+
+/* ---------- page states: loading, empty, retry ---------- */
+
+.loading {
+  padding: var(--space-4) 0;
+}
+
+.empty-state {
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+}
+
+.empty-state-title {
+  margin: 0 0 var(--space-2);
+  font-weight: 600;
+}
+
+.alert-actions {
+  margin-top: var(--space-3);
+}
+
+/* ---------- status badges ---------- */
+
+.badge {
+  display: inline-block;
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  border: 1px solid;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* blue = in progress, green = good outcome, red = bad outcome, grey = finished/neutral, amber = blocked */
+.badge-applied,
+.badge-open {
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.badge-shortlisted {
+  color: #6d28d9;
+  background: #f5f3ff;
+}
+
+.badge-selected,
+.badge-cleared {
+  color: var(--color-success);
+  background: var(--color-success-bg);
+}
+
+.badge-rejected,
+.badge-not_cleared {
+  color: var(--color-error);
+  background: var(--color-error-bg);
+}
+
+.badge-withdrawn,
+.badge-draft,
+.badge-closed,
+.badge-completed,
+.badge-absent {
+  color: #4b5563;
+  background: #f3f4f6;
+}
+
+.badge-ineligible {
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+}
+
+/* ---------- pagination ---------- */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+/* ---------- confirm dialog (<dialog>) ---------- */
+
+.dialog {
+  max-width: 440px;
+  width: calc(100% - 2 * var(--space-4));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-6);
+  color: var(--color-text);
+}
+
+/* ::backdrop is the dimmed layer the browser draws behind a modal dialog */
+.dialog::backdrop {
+  background: rgb(0 0 0 / 0.4);
+}
+
+.dialog-body {
+  margin-bottom: var(--space-6);
 }
