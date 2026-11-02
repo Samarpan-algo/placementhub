@@ -25,7 +25,8 @@ import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * Turns every exception into the same JSON shape: {timestamp, status, error, message, path},
- * plus an optional "details" array (422). Stack traces are logged on the server, never sent to the client.
+ * plus an optional "details" array (422, and 400/409 for batches).
+ * Stack traces are logged on the server, never sent to the client.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -67,7 +68,7 @@ public class GlobalExceptionHandler {
 
 	@ExceptionHandler(BadRequestException.class)
 	public ResponseEntity<ErrorResponse> handleBadRequest(BadRequestException ex, HttpServletRequest request) {
-		return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
+		return build(HttpStatus.BAD_REQUEST, ex.getMessage(), ex.getDetails(), request);
 	}
 
 	@ExceptionHandler(PropertyReferenceException.class)
@@ -107,7 +108,7 @@ public class GlobalExceptionHandler {
 
 	@ExceptionHandler(ConflictException.class)
 	public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex, HttpServletRequest request) {
-		return build(HttpStatus.CONFLICT, ex.getMessage(), request);
+		return build(HttpStatus.CONFLICT, ex.getMessage(), ex.getDetails(), request);
 	}
 
 	/** Backstop for races the service checks can't see (e.g. two identical creates at once). */
