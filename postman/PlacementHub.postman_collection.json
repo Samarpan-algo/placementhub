@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "PlacementHub",
-    "description": "PlacementHub API (Milestones 3-5): health, auth, companies, drives, students.\n\nRun folders top to bottom (or use the Collection Runner). The Auth folder logs in and saves tokens (adminToken, aaravToken, priyaToken); later requests use them. Default auth is Bearer {{adminToken}}; student requests override it with {{aaravToken}} / {{priyaToken}}.\n\nDemo password for seeded accounts: {{demoPassword}} (demo only).\n\nNote: there is no DELETE for drives, so drives created by this collection stay in your local DB. Reset with `docker compose down -v` then `docker compose up -d` (deletes all local data).",
+    "description": "PlacementHub API (Milestones 3-6): health, auth, companies, drives, students, policies.\n\nRun folders top to bottom (or use the Collection Runner). The Auth folder logs in and saves tokens (adminToken, aaravToken, priyaToken); later requests use them. Default auth is Bearer {{adminToken}}; student requests override it with {{aaravToken}} / {{priyaToken}}.\n\nDemo password for seeded accounts: {{demoPassword}} (demo only).\n\nNote: there is no DELETE for drives, so drives created by this collection stay in your local DB. Reset with `docker compose down -v` then `docker compose up -d` (deletes all local data).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -1876,6 +1876,539 @@
                   "pm.test('409 withdrawal is final', () => {",
                   "  pm.response.to.have.status(409);",
                   "  pm.expect(pm.response.json().message).to.eql('You withdrew from this drive; withdrawal is final');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Policies",
+      "description": "Admin placement-policy configuration (Milestone 6). The folder changes the live policies and then restores the seed state (DREAM_OFFER active at 10, ONE_OFFER and MAX_OFFERS off). If a run stops half-way, run the three Restore requests. The blocked-apply flow needs SELECTED offers, which the API can only create from Milestone 7, so it is added then.",
+      "item": [
+        {
+          "name": "List policies, seed state (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/policies"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, 3 policies, DREAM_OFFER active at 10', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const list = pm.response.json();",
+                  "  pm.expect(list.map(p => p.type)).to.eql(['ONE_OFFER', 'DREAM_OFFER', 'MAX_OFFERS']);",
+                  "  const dream = list.find(p => p.type === 'DREAM_OFFER');",
+                  "  pm.expect(dream.active).to.eql(true);",
+                  "  pm.expect(dream.ctcThresholdLpa).to.eql(10);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update DREAM_OFFER threshold to 12 (200)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/policies/DREAM_OFFER",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true,\n  \"ctcThresholdLpa\": 12\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, threshold saved', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.active).to.eql(true);",
+                  "  pm.expect(b.ctcThresholdLpa).to.eql(12);",
+                  "  pm.expect(b.updatedAt).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate MAX_OFFERS = 2 alongside DREAM_OFFER (200)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/policies/MAX_OFFERS",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true,\n  \"maxOffers\": 2\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, MAX_OFFERS can be active with DREAM_OFFER', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.active).to.eql(true);",
+                  "  pm.expect(b.maxOffers).to.eql(2);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Activate ONE_OFFER while DREAM_OFFER is active (409)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/policies/ONE_OFFER",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 with a clear message', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.message).to.eql('Cannot activate ONE_OFFER while DREAM_OFFER is active: the two policies contradict each other. Deactivate DREAM_OFFER first');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deactivate DREAM_OFFER (200)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/policies/DREAM_OFFER",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": false,\n  \"ctcThresholdLpa\": 12\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, deactivating is always allowed', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().active).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate ONE_OFFER now that DREAM_OFFER is off (200)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/policies/ONE_OFFER",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, ONE_OFFER active', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().active).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Activate DREAM_OFFER while ONE_OFFER is active (409)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/policies/DREAM_OFFER",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true,\n  \"ctcThresholdLpa\": 10\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 with a clear message', () => {",
+                  "  pm.response.to.have.status(409);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.message).to.include('Cannot activate DREAM_OFFER while ONE_OFFER is active');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR DREAM_OFFER without a threshold (400)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/policies/DREAM_OFFER",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": false\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 with a clear message', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.message).to.eql('DREAM_OFFER requires ctcThresholdLpa (greater than 0)');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR ONE_OFFER with maxOffers (400)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/policies/ONE_OFFER",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true,\n  \"maxOffers\": 1\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 with a clear message', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.message).to.eql('maxOffers does not apply to ONE_OFFER; leave it out');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR MAX_OFFERS with maxOffers 0 (400)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/policies/MAX_OFFERS",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true,\n  \"maxOffers\": 0\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 with a clear message', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.message).to.include('maxOffers');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Negative threshold (400)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/policies/DREAM_OFFER",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": false,\n  \"ctcThresholdLpa\": -5\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 with a clear message', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.message).to.include('ctcThresholdLpa');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Unknown policy type (400)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/policies/NOT_A_POLICY",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 with a clear message', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.message).to.eql(\"Invalid value 'NOT_A_POLICY' for parameter 'type'\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Student lists policies (403)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/policies",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 with a clear message', () => {",
+                  "  pm.response.to.have.status(403);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.message).to.eql('You do not have permission to access this resource');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Restore: deactivate ONE_OFFER (200)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/policies/ONE_OFFER",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": false\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().active).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Restore: DREAM_OFFER active at 10 (200)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/policies/DREAM_OFFER",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true,\n  \"ctcThresholdLpa\": 10\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().ctcThresholdLpa).to.eql(10);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Restore: MAX_OFFERS inactive at 2 (200)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/policies/MAX_OFFERS",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": false,\n  \"maxOffers\": 2\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().active).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Check: back to the seed state (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/policies"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, only DREAM_OFFER (10) active', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const list = pm.response.json();",
+                  "  pm.expect(list.filter(p => p.active).map(p => p.type)).to.eql(['DREAM_OFFER']);",
+                  "  pm.expect(list.find(p => p.type === 'DREAM_OFFER').ctcThresholdLpa).to.eql(10);",
+                  "  pm.expect(list.find(p => p.type === 'MAX_OFFERS').maxOffers).to.eql(2);",
                   "});"
                 ]
               }
