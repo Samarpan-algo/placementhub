@@ -11,6 +11,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.placementhub.application.SelectionService;
 import com.placementhub.common.ConflictException;
 import com.placementhub.common.PageResponse;
 import com.placementhub.common.ResourceNotFoundException;
@@ -23,6 +24,7 @@ import com.placementhub.user.UserRepository;
 /**
  * Business rules for drives. All status rules live here:
  * ALLOWED_TRANSITIONS, EDITABLE_STATUSES, and checkCanOpen().
+ * Completing a drive also rejects every application still pending (SelectionService.rejectPending).
  */
 @Service
 public class DriveService {
@@ -41,16 +43,18 @@ public class DriveService {
 	private final UserRepository userRepository;
 	private final CurrentUserProvider currentUserProvider;
 	private final DriveMapper driveMapper;
+	private final SelectionService selectionService;
 	private final Clock clock;
 
 	public DriveService(DriveRepository driveRepository, CompanyRepository companyRepository,
 			UserRepository userRepository, CurrentUserProvider currentUserProvider, DriveMapper driveMapper,
-			Clock clock) {
+			SelectionService selectionService, Clock clock) {
 		this.driveRepository = driveRepository;
 		this.companyRepository = companyRepository;
 		this.userRepository = userRepository;
 		this.currentUserProvider = currentUserProvider;
 		this.driveMapper = driveMapper;
+		this.selectionService = selectionService;
 		this.clock = clock;
 	}
 
@@ -114,7 +118,8 @@ public class DriveService {
 	}
 
 	private DriveResponse changeStatus(Long id, DriveStatus target) {
-		Drive drive = findOrThrow(id);
+		// Locks the drive row: e.g. no round results or selection can run while the drive is being completed
+		Drive drive = driveRepository.findByIdForUpdate(id).orElseThrow(() -> ResourceNotFoundException.of("Drive", id));
 		DriveStatus current = drive.getStatus();
 		DriveStatus allowedNext = ALLOWED_TRANSITIONS.get(current);
 		if (allowedNext != target) {
@@ -126,6 +131,9 @@ public class DriveService {
 			checkCanOpen(drive, "Cannot open drive");
 		}
 		drive.setStatus(target);
+		if (target == DriveStatus.COMPLETED) {
+			selectionService.rejectPending(drive);
+		}
 		driveRepository.flush();
 		return driveMapper.toResponse(drive);
 	}

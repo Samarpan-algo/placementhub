@@ -30,6 +30,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.placementhub.application.SelectionService;
 import com.placementhub.common.Branch;
 import com.placementhub.common.ConflictException;
 import com.placementhub.common.ResourceNotFoundException;
@@ -56,6 +57,8 @@ class DriveServiceTest {
 	private UserRepository userRepository;
 	@Mock
 	private CurrentUserProvider currentUserProvider;
+	@Mock
+	private SelectionService selectionService;
 
 	private DriveService driveService;
 	private final Company company = new Company("Nimbus Systems", null, null);
@@ -65,7 +68,7 @@ class DriveServiceTest {
 	void setUp() {
 		Clock fixedClock = Clock.fixed(NOW, ZoneOffset.UTC);
 		driveService = new DriveService(driveRepository, companyRepository, userRepository, currentUserProvider,
-				new DriveMapper(), fixedClock);
+				new DriveMapper(), selectionService, fixedClock);
 	}
 
 	// ---------------------------------------------------------------------
@@ -86,7 +89,7 @@ class DriveServiceTest {
 	@DisplayName("only DRAFT->OPEN, OPEN->CLOSED and CLOSED->COMPLETED are allowed")
 	void statusTransitions(DriveStatus from, DriveStatus to) {
 		Drive drive = validDrive(from);
-		when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+		when(driveRepository.findByIdForUpdate(DRIVE_ID)).thenReturn(Optional.of(drive));
 
 		boolean shouldBeAllowed = EXPECTED_ALLOWED.contains(from + "->" + to);
 
@@ -105,7 +108,7 @@ class DriveServiceTest {
 
 	@Test
 	void blockedTransitionMessageNamesTheAllowedOne() {
-		when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(validDrive(DriveStatus.OPEN)));
+		when(driveRepository.findByIdForUpdate(DRIVE_ID)).thenReturn(Optional.of(validDrive(DriveStatus.OPEN)));
 
 		assertThatThrownBy(() -> driveService.complete(DRIVE_ID))
 				.isInstanceOf(ConflictException.class)
@@ -113,8 +116,27 @@ class DriveServiceTest {
 	}
 
 	@Test
+	void completingRejectsThePendingApplicationsInTheSameTransaction() {
+		Drive drive = validDrive(DriveStatus.CLOSED);
+		when(driveRepository.findByIdForUpdate(DRIVE_ID)).thenReturn(Optional.of(drive));
+
+		driveService.complete(DRIVE_ID);
+
+		assertThat(drive.getStatus()).isEqualTo(DriveStatus.COMPLETED);
+		verify(selectionService).rejectPending(drive);
+	}
+
+	@Test
+	void blockedCompletionRejectsNothing() {
+		when(driveRepository.findByIdForUpdate(DRIVE_ID)).thenReturn(Optional.of(validDrive(DriveStatus.OPEN)));
+
+		assertThatThrownBy(() -> driveService.complete(DRIVE_ID)).isInstanceOf(ConflictException.class);
+		verify(selectionService, never()).rejectPending(any());
+	}
+
+	@Test
 	void completedIsFinal() {
-		when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(validDrive(DriveStatus.COMPLETED)));
+		when(driveRepository.findByIdForUpdate(DRIVE_ID)).thenReturn(Optional.of(validDrive(DriveStatus.COMPLETED)));
 
 		assertThatThrownBy(() -> driveService.open(DRIVE_ID))
 				.isInstanceOf(ConflictException.class)
@@ -123,7 +145,7 @@ class DriveServiceTest {
 
 	@Test
 	void transitionOnMissingDriveIs404() {
-		when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.empty());
+		when(driveRepository.findByIdForUpdate(DRIVE_ID)).thenReturn(Optional.empty());
 
 		assertThatThrownBy(() -> driveService.open(DRIVE_ID))
 				.isInstanceOf(ResourceNotFoundException.class)
@@ -141,7 +163,7 @@ class DriveServiceTest {
 		void blockedWhenDeadlineHasPassed() {
 			Drive drive = validDrive(DriveStatus.DRAFT);
 			drive.setRegistrationDeadline(PAST);
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForUpdate(DRIVE_ID)).thenReturn(Optional.of(drive));
 
 			assertThatThrownBy(() -> driveService.open(DRIVE_ID))
 					.isInstanceOf(ConflictException.class)
@@ -153,7 +175,7 @@ class DriveServiceTest {
 		void blockedWhenDeadlineIsExactlyNow() {
 			Drive drive = validDrive(DriveStatus.DRAFT);
 			drive.setRegistrationDeadline(NOW);
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForUpdate(DRIVE_ID)).thenReturn(Optional.of(drive));
 
 			assertThatThrownBy(() -> driveService.open(DRIVE_ID))
 					.isInstanceOf(ConflictException.class)
@@ -164,7 +186,7 @@ class DriveServiceTest {
 		void blockedWhenNoBranches() {
 			Drive drive = validDrive(DriveStatus.DRAFT);
 			drive.setBranches(Set.of());
-			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(driveRepository.findByIdForUpdate(DRIVE_ID)).thenReturn(Optional.of(drive));
 
 			assertThatThrownBy(() -> driveService.open(DRIVE_ID))
 					.isInstanceOf(ConflictException.class)
