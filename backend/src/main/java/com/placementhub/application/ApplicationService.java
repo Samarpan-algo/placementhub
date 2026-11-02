@@ -2,7 +2,9 @@ package com.placementhub.application;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Set;
 
 import org.springframework.dao.DataIntegrityViolationException;
@@ -19,13 +21,18 @@ import com.placementhub.common.UnprocessableEntityException;
 import com.placementhub.drive.Drive;
 import com.placementhub.drive.DriveRepository;
 import com.placementhub.drive.DriveStatus;
+import com.placementhub.policy.PlacementPolicy;
+import com.placementhub.policy.PlacementPolicyRepository;
+import com.placementhub.policy.PolicyEngine;
+import com.placementhub.policy.PolicyEvaluation;
 import com.placementhub.student.CurrentStudentResolver;
 import com.placementhub.student.StudentProfile;
 
 /**
  * The current student's applications: apply, withdraw, view.
  * Apply rules (in order): drive exists and is published, no earlier application,
- * eligible, [policy engine, Milestone 6], then insert, with the DB UNIQUE constraint as the race guard.
+ * eligible and not blocked by a placement policy (one 422 with all reasons), then insert,
+ * with the DB UNIQUE constraint as the race guard.
  */
 @Service
 public class ApplicationService {
@@ -33,6 +40,8 @@ public class ApplicationService {
 	static final String UNIQUE_DRIVE_STUDENT = "uq_applications_drive_student";
 	static final String ALREADY_APPLIED = "You have already applied to this drive";
 	static final String WITHDRAWAL_IS_FINAL = "You withdrew from this drive; withdrawal is final";
+	static final String NOT_ELIGIBLE = "You are not eligible for this drive";
+	static final String BLOCKED_BY_POLICY = "This application is blocked by a placement policy";
 
 	/** Statuses a student may still withdraw from. */
 	static final Set<ApplicationStatus> WITHDRAWABLE = EnumSet.of(ApplicationStatus.APPLIED,
@@ -42,16 +51,21 @@ public class ApplicationService {
 	private final DriveRepository driveRepository;
 	private final ApplicationRepository applicationRepository;
 	private final EligibilityService eligibilityService;
+	private final PlacementPolicyRepository policyRepository;
+	private final PolicyEngine policyEngine;
 	private final ApplicationMapper applicationMapper;
 	private final Clock clock;
 
 	public ApplicationService(CurrentStudentResolver currentStudentResolver, DriveRepository driveRepository,
 			ApplicationRepository applicationRepository, EligibilityService eligibilityService,
+			PlacementPolicyRepository policyRepository, PolicyEngine policyEngine,
 			ApplicationMapper applicationMapper, Clock clock) {
 		this.currentStudentResolver = currentStudentResolver;
 		this.driveRepository = driveRepository;
 		this.applicationRepository = applicationRepository;
 		this.eligibilityService = eligibilityService;
+		this.policyRepository = policyRepository;
+		this.policyEngine = policyEngine;
 		this.applicationMapper = applicationMapper;
 		this.clock = clock;
 	}
@@ -75,15 +89,15 @@ public class ApplicationService {
 							: ALREADY_APPLIED);
 				});
 
+		// Eligibility and placement policies together: one 422 with every reason, the same list browse shows
 		EligibilityResult eligibility = eligibilityService.evaluate(student, drive, Instant.now(clock));
-		if (!eligibility.eligible()) {
-			throw new UnprocessableEntityException("You are not eligible for this drive", eligibility.reasons());
+		PolicyEvaluation policies = evaluatePolicies(student, drive);
+		if (!eligibility.eligible() || !policies.allowed()) {
+			List<String> reasons = new ArrayList<>(eligibility.reasons());
+			reasons.addAll(policies.reasons());
+			throw new UnprocessableEntityException(eligibility.eligible() ? BLOCKED_BY_POLICY : NOT_ELIGIBLE,
+					reasons);
 		}
-
-		// ===== POLICY ENGINE HOOK (Milestone 6) =====
-		// Load the student's offers and run every active PolicyRule (ONE_OFFER, DREAM_OFFER, MAX_OFFERS) here.
-		// A blocked result must throw before the insert below, with the rule's reason.
-		// ============================================
 
 		Application saved;
 		try {
@@ -97,6 +111,18 @@ public class ApplicationService {
 			throw e;
 		}
 		return applicationMapper.toResponse(saved);
+	}
+
+	/** Internship drives, or no active policy: no queries at all. Otherwise +2 queries (policies, offers). */
+	private PolicyEvaluation evaluatePolicies(StudentProfile student, Drive drive) {
+		if (!policyEngine.appliesTo(drive)) {
+			return PolicyEvaluation.ALLOWED;
+		}
+		List<PlacementPolicy> active = policyRepository.findByActiveTrue();
+		if (active.isEmpty()) {
+			return PolicyEvaluation.ALLOWED;
+		}
+		return policyEngine.evaluate(active, drive, applicationRepository.findSelectedOffers(student.getId()));
 	}
 
 	// ---------- withdraw ----------
