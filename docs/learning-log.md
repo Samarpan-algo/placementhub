@@ -193,3 +193,28 @@ Short notes, in plain words, on what I learned in each milestone.
 - **Same lock order everywhere = no deadlocks:** always the drive, then students by ascending id.
 - **IDENTITY ids insert immediately:** `save()` on a new entity runs the INSERT right away, so every NOT NULL field must be set *before* `save()`. I caught this before the tests ran.
 - **Column limits apply to generated text too:** several joined policy reasons can exceed `VARCHAR(300)`, so the helper cuts them instead of failing the transaction.
+
+---
+
+## Milestone 7, Session B: Admin views, CSV, criteria changes, audit view, stats (2026-11-02)
+
+**What I built:**
+- A V3 migration: audit rows for round results and policy changes, and `status_reason` widened to 1000 characters. The audit always keeps the full reason.
+- The applicants list for a drive (filters, paging, student details, latest round), plus a CSV export that is safe against formula injection.
+- Criteria-change re-evaluation: editing an OPEN drive's criteria re-checks every pending application. The ones that now fail become INELIGIBLE with the reason, and the edit itself is audited (only the changed fields, old → new).
+- `jobType` can now change only while a drive is DRAFT. Apply takes a shared lock on the drive.
+- `GET /api/audit` (filters, newest first) and `GET /api/stats` (aggregate SQL, median included).
+- 108 new tests (419 in total), including repository tests on the real Postgres, and a Postman folder (full collection: 239/239 assertions, run twice).
+
+**What I learned:**
+- **Never edit an applied migration.** Flyway checksums them. A change is a new `V3` file that drops and re-adds the CHECK constraints.
+- **CSV injection is real:** Excel runs a cell that starts with `=`, `+`, `-` or `@` as a formula. A leading `'` makes it text. Escaping *every* cell is safer than remembering which columns are "safe", because the phone rule lives in the API, not in the DB.
+- **Proving "no N+1" instead of claiming it:** Hibernate statistics count the SQL statements. The applicants page runs 5 queries whether it has 1 row or 20.
+- **Mocks can't find SQL bugs.** The real-DB tests caught two bugs: PostgreSQL can't guess the type of a null timestamp parameter (`? IS NULL`, fixed with a `CAST`), and `Map.of().get(null)` throws a `NullPointerException`.
+- **Rolled-back tests:** a test can even delete rows inside its transaction to start clean; the rollback puts everything back. (It's still the dev DB, so Milestone 11 moves this to a test DB.)
+- **`FOR SHARE` vs `FOR UPDATE`:** many applies can hold the shared drive lock at once, but an admin's edit (`FOR UPDATE`) waits for them, and they wait for it. That closed a race where an apply could commit against criteria that had just changed.
+- **Reuse the rule engine again:** re-evaluation calls the same `EligibilityService` as apply, so the INELIGIBLE reason reads exactly like an apply rejection.
+- **Compare normalised values:** `12` and `12.00` are equal as numbers but not with `BigDecimal.equals`. The drive snapshot fixes the scale to 2, so an edit that changes nothing writes no audit row.
+- **Let the database aggregate:** `COUNT … FILTER`, `AVG` and `percentile_cont(0.5)` return a handful of rows; Java only divides counts into percentages.
+- **"Average package" needs a definition:** I use each placed student's *best* offer, so a student with two offers isn't counted twice.
+- **Postman variable scopes:** `pm.collectionVariables.get('baseUrl')` ignores a `--env-var` override; `pm.variables.get` respects it. Three failing assertions came from scripts calling the *old* app on another port.

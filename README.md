@@ -1,6 +1,6 @@
 # PlacementHub
 
-> Status: v0 — project skeleton (Milestone 1). Features are being built milestone by milestone.
+> Status: backend v1 features done (Milestones 1–7): eligibility, policy engine, rounds, audit log, admin views and stats. Frontend next (Milestone 8).
 
 ## Problem
 
@@ -60,6 +60,9 @@ The schema is managed by **Flyway** migrations in `backend/src/main/resources/db
 
 - `V1__init.sql`: all tables, constraints and indexes
 - `V2__seed_demo_data.sql`: demo data: 1 admin, 6 students (CSE/ECE/ME), 3 fictional companies, 5 drives, default placement policies
+- `V3__audit_types_and_longer_reason.sql`: audit rows for round results and policy changes; `status_reason` widened to 1000 characters
+
+Migrations are never edited after they are applied; every schema change is a new `V<n>__...sql` file.
 
 **Demo accounts (demo only, never use in production):**
 
@@ -80,7 +83,7 @@ The API uses stateless **JWT** bearer tokens (HS256, valid for 2 hours).
 |---|---|
 | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/health` | public |
 | `/api/students/me/**` | `STUDENT` |
-| `/api/companies/**`, `/api/drives/**`, `/api/policies/**` | `TPO_ADMIN` |
+| `/api/companies/**`, `/api/drives/**`, `/api/policies/**`, `/api/audit/**`, `/api/stats/**` | `TPO_ADMIN` |
 
 - **Students** register themselves with `POST /api/auth/register`. Their academic details are self-reported at registration and read-only afterwards.
 - **TPO admin accounts** can't be registered. The demo admin comes from the seed data.
@@ -99,6 +102,28 @@ Errors use the standard error JSON:
 - **403**: the wrong role for this endpoint.
 
 The Postman collection (`postman/`) logs in automatically: run the **Auth** folder first.
+
+## Admin features (Milestone 7)
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/drives/{id}/applications?status=&branch=&minCgpa=&page=&size=` | Applicants with student details and their latest round (sorted by roll number) |
+| `GET /api/drives/{id}/applications/export` | The same filters as a CSV download (formula injection escaped) |
+| `PUT /api/drives/{id}` | Editing an OPEN drive's criteria re-checks every pending application; the response says how many became `INELIGIBLE` |
+| `GET /api/audit?entityType=&entityId=&from=&to=` | The audit log, newest first (who, what, old → new, when) |
+| `GET /api/stats` | Total and placed students, placement % (overall and per branch), offers per company, highest/average/median CTC, drives by status |
+
+Rounds, results and final selection: see `POST /api/drives/{id}/rounds`, `PUT .../rounds/{roundId}/results` and `POST /api/drives/{id}/selections` (decisions 47–49).
+
+## Tests
+
+```powershell
+cd backend
+.\mvnw.cmd test                 # unit, MockMvc and repository tests (needs the Docker Postgres running)
+npx newman run ..\postman\PlacementHub.postman_collection.json   # API tests, with the app running on :8080
+```
+
+Repository tests (`*DbTest`) run against the local Docker Postgres inside a transaction that is rolled back, so your dev data is left unchanged. Moving them to a separate test database is planned for Milestone 11.
 
 ## Configuration
 
