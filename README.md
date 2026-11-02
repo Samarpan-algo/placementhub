@@ -80,7 +80,7 @@ The API uses stateless **JWT** bearer tokens (HS256, valid for 2 hours).
 |---|---|
 | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/health` | public |
 | `/api/students/me/**` | `STUDENT` |
-| `/api/companies/**`, `/api/drives/**` | `TPO_ADMIN` |
+| `/api/companies/**`, `/api/drives/**`, `/api/policies/**` | `TPO_ADMIN` |
 
 - **Students** register themselves with `POST /api/auth/register`. Their academic details are self-reported at registration and read-only afterwards.
 - **TPO admin accounts** can't be registered. The demo admin comes from the seed data.
