@@ -37,6 +37,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.placementhub.application.ApplicantService;
 import com.placementhub.application.ApplicationService;
 import com.placementhub.application.SelectionService;
+import com.placementhub.audit.AuditQueryService;
 import com.placementhub.company.CompanyService;
 import com.placementhub.config.JwtConfig;
 import com.placementhub.config.JwtProperties;
@@ -84,6 +85,8 @@ class SecurityAccessTest {
 	@MockitoBean
 	private SelectionService selectionService;
 	@MockitoBean
+	private AuditQueryService auditQueryService;
+	@MockitoBean
 	private RoundResultService roundResultService;
 	@MockitoBean
 	private AuthService authService;
@@ -127,6 +130,7 @@ class SecurityAccessTest {
 				new Endpoint(HttpMethod.GET, "/api/drives/1/applications", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/drives/1/applications/export", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/policies", Role.TPO_ADMIN),
+				new Endpoint(HttpMethod.GET, "/api/audit", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.PUT, "/api/policies/DREAM_OFFER", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/students/me", Role.STUDENT),
 				new Endpoint(HttpMethod.GET, "/api/students/me/drives", Role.STUDENT),
