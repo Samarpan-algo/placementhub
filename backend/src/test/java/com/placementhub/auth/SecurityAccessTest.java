@@ -40,6 +40,7 @@ import com.placementhub.config.JwtConfig;
 import com.placementhub.config.JwtProperties;
 import com.placementhub.config.SecurityConfig;
 import com.placementhub.drive.DriveService;
+import com.placementhub.policy.PolicyService;
 import com.placementhub.student.StudentDriveService;
 import com.placementhub.student.StudentService;
 import com.placementhub.user.Role;
@@ -70,6 +71,8 @@ class SecurityAccessTest {
 	private StudentDriveService studentDriveService;
 	@MockitoBean
 	private ApplicationService applicationService;
+	@MockitoBean
+	private PolicyService policyService;
 	@MockitoBean
 	private AuthService authService;
 	@MockitoBean
@@ -108,6 +111,8 @@ class SecurityAccessTest {
 				new Endpoint(HttpMethod.GET, "/api/drives", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/drives/1", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.POST, "/api/drives/1/open", Role.TPO_ADMIN),
+				new Endpoint(HttpMethod.GET, "/api/policies", Role.TPO_ADMIN),
+				new Endpoint(HttpMethod.PUT, "/api/policies/DREAM_OFFER", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/students/me", Role.STUDENT),
 				new Endpoint(HttpMethod.GET, "/api/students/me/drives", Role.STUDENT),
 				new Endpoint(HttpMethod.GET, "/api/students/me/applications", Role.STUDENT),
