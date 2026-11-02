@@ -4,6 +4,7 @@ import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -12,6 +13,9 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.placementhub.audit.AuditAction;
+import com.placementhub.audit.AuditEntityType;
+import com.placementhub.audit.AuditService;
 import com.placementhub.common.BadRequestException;
 import com.placementhub.common.ConflictException;
 import com.placementhub.common.ResourceNotFoundException;
@@ -22,6 +26,7 @@ import com.placementhub.user.UserRepository;
  * Admin configuration of placement policies. Rules:
  * each type has its own required settings (checkSettings), and ONE_OFFER and DREAM_OFFER
  * are never active together (CONFLICTING), checked under a row lock so two admins can't race.
+ * Every real change is audited (POLICY_CHANGED, old -> new settings); a PUT that changes nothing is not.
  */
 @Service
 public class PolicyService {
@@ -35,14 +40,17 @@ public class PolicyService {
 	private final UserRepository userRepository;
 	private final CurrentUserProvider currentUserProvider;
 	private final PolicyMapper policyMapper;
+	private final AuditService auditService;
 	private final Clock clock;
 
 	public PolicyService(PlacementPolicyRepository policyRepository, UserRepository userRepository,
-			CurrentUserProvider currentUserProvider, PolicyMapper policyMapper, Clock clock) {
+			CurrentUserProvider currentUserProvider, PolicyMapper policyMapper, AuditService auditService,
+			Clock clock) {
 		this.policyRepository = policyRepository;
 		this.userRepository = userRepository;
 		this.currentUserProvider = currentUserProvider;
 		this.policyMapper = policyMapper;
+		this.auditService = auditService;
 		this.clock = clock;
 	}
 
@@ -67,6 +75,7 @@ public class PolicyService {
 			checkNoConflictingPolicyIsActive(type, byType);
 		}
 
+		Map<String, Object> oldValue = auditValue(policy);
 		policy.setActive(request.active());
 		// @Digits allows at most 2 decimals, so setScale only pads ("10" -> "10.00"), never rounds
 		policy.setCtcThresholdLpa(request.ctcThresholdLpa() == null
@@ -76,8 +85,25 @@ public class PolicyService {
 		// getReferenceById gives a proxy for the FK without an extra SELECT
 		policy.setUpdatedBy(userRepository.getReferenceById(currentUserProvider.currentUserId()));
 		policy.setUpdatedAt(Instant.now(clock));
-		// TODO Milestone 7: write an audit log entry for this policy change
+		Map<String, Object> newValue = auditValue(policy);
+		if (!newValue.equals(oldValue)) {
+			auditService.record(AuditEntityType.POLICY, policy.getId(), AuditAction.POLICY_CHANGED, oldValue,
+					newValue);
+		}
 		return policyMapper.toResponse(policy);
+	}
+
+	/**
+	 * The settings that matter for the audit. The threshold is always stored with 2 decimals,
+	 * so 10.00 equals 10.00 here (BigDecimal.equals compares the scale too).
+	 */
+	private static Map<String, Object> auditValue(PlacementPolicy policy) {
+		Map<String, Object> value = new LinkedHashMap<>(); // settings may be null, so not Map.of
+		value.put("type", policy.getType().name());
+		value.put("active", policy.isActive());
+		value.put("ctcThresholdLpa", policy.getCtcThresholdLpa());
+		value.put("maxOffers", policy.getMaxOffers());
+		return value;
 	}
 
 	/** Each type needs exactly its own setting; a setting that doesn't apply is rejected, not ignored. */

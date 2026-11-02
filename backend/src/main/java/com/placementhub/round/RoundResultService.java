@@ -5,8 +5,10 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -20,6 +22,9 @@ import com.placementhub.application.ApplicationRepository;
 import com.placementhub.application.ApplicationStatus;
 import com.placementhub.application.StatusChangeTrigger;
 import com.placementhub.application.StatusChanges;
+import com.placementhub.audit.AuditAction;
+import com.placementhub.audit.AuditEntityType;
+import com.placementhub.audit.AuditService;
 import com.placementhub.common.BatchValidation;
 import com.placementhub.common.ConflictException;
 import com.placementhub.common.ResourceNotFoundException;
@@ -35,6 +40,7 @@ import com.placementhub.student.StudentProfileRepository;
  * from rounds (not SELECTED, WITHDRAWN or INELIGIBLE); round N needs CLEARED in round N-1; and a failing
  * result can't be recorded while the application has a result in a later round.
  * Then each application's status is recalculated from all its results and audited.
+ * Every new or changed result is audited too (RESULT_CHANGED), even when the status stays the same.
  */
 @Service
 public class RoundResultService {
@@ -49,16 +55,19 @@ public class RoundResultService {
 	private final ApplicationRepository applicationRepository;
 	private final StudentProfileRepository studentProfileRepository;
 	private final StatusChanges statusChanges;
+	private final AuditService auditService;
 
 	public RoundResultService(DriveRepository driveRepository, DriveRoundRepository roundRepository,
 			RoundResultRepository resultRepository, ApplicationRepository applicationRepository,
-			StudentProfileRepository studentProfileRepository, StatusChanges statusChanges) {
+			StudentProfileRepository studentProfileRepository, StatusChanges statusChanges,
+			AuditService auditService) {
 		this.driveRepository = driveRepository;
 		this.roundRepository = roundRepository;
 		this.resultRepository = resultRepository;
 		this.applicationRepository = applicationRepository;
 		this.studentProfileRepository = studentProfileRepository;
 		this.statusChanges = statusChanges;
+		this.auditService = auditService;
 	}
 
 	@Transactional
@@ -155,24 +164,47 @@ public class RoundResultService {
 		}
 	}
 
-	/** Updates this round's existing result (a correction) or creates it. Keeps `results` up to date. */
+	/**
+	 * Updates this round's existing result (a correction) or creates it, and audits it if anything changed.
+	 * Keeps `results` up to date.
+	 */
 	private RoundResult upsert(DriveRound round, Application application, List<RoundResult> results,
 			RoundResultsRequest.Item item) {
 		String remarks = item.remarks() == null || item.remarks().isBlank() ? null : item.remarks().trim();
 		Optional<RoundResult> existing = resultIn(results, round);
 		if (existing.isPresent()) {
+			RoundResult result = existing.get();
+			if (result.getResult() == item.result() && Objects.equals(result.getRemarks(), remarks)) {
+				return result; // the same sheet sent again: nothing changed, no audit row
+			}
+			Map<String, Object> oldValue = resultValue(application, round, result.getResult(), result.getRemarks());
 			// A managed entity: the UPDATE runs at flush, no save() needed
-			existing.get().setResult(item.result());
-			existing.get().setRemarks(remarks);
-			return existing.get();
+			result.setResult(item.result());
+			result.setRemarks(remarks);
+			auditService.record(AuditEntityType.ROUND_RESULT, result.getId(), AuditAction.RESULT_CHANGED, oldValue,
+					resultValue(application, round, item.result(), remarks));
+			return result;
 		}
-		// Fields first: with IDENTITY ids, save() runs the INSERT immediately
+		// Fields first: with IDENTITY ids, save() runs the INSERT immediately (and gives the id for the audit)
 		RoundResult created = new RoundResult(round, application);
 		created.setResult(item.result());
 		created.setRemarks(remarks);
 		results.add(created);
 		resultRepository.save(created);
+		auditService.record(AuditEntityType.ROUND_RESULT, created.getId(), AuditAction.RESULT_CHANGED, null,
+				resultValue(application, round, item.result(), remarks));
 		return created;
+	}
+
+	/** The audit JSON of one result. The application id and round number make the row readable on its own. */
+	private static Map<String, Object> resultValue(Application application, DriveRound round, RoundOutcome result,
+			String remarks) {
+		Map<String, Object> value = new LinkedHashMap<>(); // remarks may be null, so not Map.of
+		value.put("applicationId", application.getId());
+		value.put("roundNo", round.getRoundNo());
+		value.put("result", result.name());
+		value.put("remarks", remarks);
+		return value;
 	}
 
 	private static Optional<RoundResult> resultIn(List<RoundResult> results, DriveRound round) {

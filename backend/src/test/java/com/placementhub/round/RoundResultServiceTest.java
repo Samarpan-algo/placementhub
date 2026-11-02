@@ -35,6 +35,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import com.placementhub.application.Application;
 import com.placementhub.application.ApplicationRepository;
@@ -84,7 +85,7 @@ class RoundResultServiceTest {
 	@BeforeEach
 	void setUp() {
 		service = new RoundResultService(driveRepository, roundRepository, resultRepository, applicationRepository,
-				studentProfileRepository, new StatusChanges(auditService));
+				studentProfileRepository, new StatusChanges(auditService), auditService);
 		drive = drive(DRIVE_ID, "Nimbus Systems", JobType.FULL_TIME, "12", DriveStatus.CLOSED);
 		round1 = round(101L, drive, 1, "Aptitude");
 		round2 = round(102L, drive, 2, "Technical");
@@ -365,6 +366,90 @@ class RoundResultServiceTest {
 			assertThat(riya.getStatus()).isEqualTo(ApplicationStatus.SHORTLISTED);
 		}
 
+	}
+
+	// =====================================================================
+	// result audit (RESULT_CHANGED), also when the status stays the same
+	// =====================================================================
+
+	@Nested
+	class ResultAudit {
+
+		@BeforeEach
+		void savedResultsGetAnId() {
+			// like the real IDENTITY insert: save() assigns the id immediately
+			lenient().when(resultRepository.save(any(RoundResult.class))).thenAnswer(inv -> {
+				RoundResult saved = inv.getArgument(0);
+				ReflectionTestUtils.setField(saved, "id", 900L);
+				return saved;
+			});
+		}
+
+		@Test
+		void aNewResultIsAuditedWithNoOldValue() {
+			save(round1, new RoundResultsRequest.Item(11L, RoundOutcome.CLEARED, "Strong quant"));
+
+			ResultAuditRow row = auditedResult(900L);
+			assertThat(row.oldValue()).isNull();
+			assertThat(row.newValue()).containsEntry("applicationId", 11L).containsEntry("roundNo", (short) 1)
+					.containsEntry("result", "CLEARED").containsEntry("remarks", "Strong quant");
+		}
+
+		@Test
+		void aCorrectionThatKeepsTheStatusIsStillAudited() {
+			// NOT_CLEARED -> ABSENT: REJECTED with the same reason either way, so no STATUS_CHANGED row
+			karan.setStatus(ApplicationStatus.REJECTED);
+			karan.setStatusReason("Not cleared in Round 1: Aptitude");
+			RoundResult previous = result(round1, karan, RoundOutcome.NOT_CLEARED);
+			ReflectionTestUtils.setField(previous, "id", 501L);
+			existing.add(previous);
+
+			save(round1, item(karan, RoundOutcome.ABSENT));
+
+			ResultAuditRow row = auditedResult(501L);
+			assertThat(row.oldValue()).containsEntry("result", "NOT_CLEARED");
+			assertThat(row.newValue()).containsEntry("result", "ABSENT").containsEntry("applicationId", 12L);
+			verify(auditService, never()).record(eq(AuditEntityType.APPLICATION), anyLong(), any(), any(), any());
+		}
+
+		@Test
+		void aRemarksOnlyEditIsAudited() {
+			riya.setStatus(ApplicationStatus.SHORTLISTED);
+			RoundResult previous = result(round1, riya, RoundOutcome.CLEARED);
+			ReflectionTestUtils.setField(previous, "id", 502L);
+			existing.add(previous);
+
+			save(round1, new RoundResultsRequest.Item(11L, RoundOutcome.CLEARED, "Top 10%"));
+
+			ResultAuditRow row = auditedResult(502L);
+			assertThat(row.oldValue()).containsEntry("remarks", null);
+			assertThat(row.newValue()).containsEntry("remarks", "Top 10%");
+		}
+
+		@Test
+		void resendingTheSameResultWritesNoAuditRow() {
+			riya.setStatus(ApplicationStatus.SHORTLISTED);
+			RoundResult previous = result(round1, riya, RoundOutcome.CLEARED);
+			previous.setRemarks("Top 10%");
+			existing.add(previous);
+
+			save(round1, new RoundResultsRequest.Item(11L, RoundOutcome.CLEARED, "  Top 10%  "));
+
+			verify(auditService, never()).record(any(), any(), any(), any(), any());
+		}
+
+		@SuppressWarnings({ "unchecked", "rawtypes" })
+		private ResultAuditRow auditedResult(Long resultId) {
+			ArgumentCaptor<Map<String, Object>> oldValue = (ArgumentCaptor) ArgumentCaptor.forClass(Map.class);
+			ArgumentCaptor<Map<String, Object>> newValue = (ArgumentCaptor) ArgumentCaptor.forClass(Map.class);
+			verify(auditService).record(eq(AuditEntityType.ROUND_RESULT), eq(resultId),
+					eq(AuditAction.RESULT_CHANGED), oldValue.capture(), newValue.capture());
+			return new ResultAuditRow(oldValue.getValue(), newValue.getValue());
+		}
+
+	}
+
+	private record ResultAuditRow(Map<String, Object> oldValue, Map<String, Object> newValue) {
 	}
 
 	// ---------------------------------------------------------------------
