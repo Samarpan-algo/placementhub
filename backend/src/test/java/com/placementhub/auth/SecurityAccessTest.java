@@ -1,6 +1,7 @@
 package com.placementhub.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.startsWith;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -39,6 +40,7 @@ import com.placementhub.application.ApplicationService;
 import com.placementhub.application.SelectionService;
 import com.placementhub.audit.AuditQueryService;
 import com.placementhub.company.CompanyService;
+import com.placementhub.config.CorsConfig;
 import com.placementhub.config.JwtConfig;
 import com.placementhub.config.JwtProperties;
 import com.placementhub.config.SecurityConfig;
@@ -56,7 +58,7 @@ import com.placementhub.user.Role;
  * Services are mocked (no database): we only care whether security lets the request through.
  */
 @WebMvcTest
-@Import({ SecurityConfig.class, JwtConfig.class, RestAuthenticationEntryPoint.class, RestAccessDeniedHandler.class,
+@Import({ SecurityConfig.class, JwtConfig.class, CorsConfig.class, RestAuthenticationEntryPoint.class, RestAccessDeniedHandler.class,
 		SecurityErrorWriter.class })
 class SecurityAccessTest {
 
@@ -256,7 +258,67 @@ class SecurityAccessTest {
 						 "rollNo":"23CSE123","branch":"CSE","graduationYear":2027,"cgpa":8.0,"activeBacklogs":0}
 						"""))
 				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.message").value("Validation failed: password: size must be between 8 and 72"));
+				.andExpect(jsonPath("$.message").value("Validation failed: password: size must be between 8 and 72"))
+				.andExpect(jsonPath("$.details[0]").value("password: size must be between 8 and 72"));
+	}
+
+	@Test
+	void registerWithTooShortRollNoIs400() throws Exception {
+		mvc.perform(request(HttpMethod.POST, "/api/auth/register")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"email":"new@student.placementhub.dev","password":"Secret@123","fullName":"New Student",
+						 "rollNo":"2","branch":"CSE","graduationYear":2027,"cgpa":8.0,"activeBacklogs":0}
+						"""))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.details[0]").value("rollNo: must be 5 to 20 letters or digits, e.g. 23CSE099"));
+	}
+
+	@Test
+	void registerWithSeveralInvalidFieldsListsEachInDetailsSortedByField() throws Exception {
+		mvc.perform(request(HttpMethod.POST, "/api/auth/register")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"email":"not-an-email","password":"short","fullName":"New Student",
+						 "rollNo":"23CSE123","branch":"CSE","graduationYear":2027,"cgpa":11.0,"activeBacklogs":0}
+						"""))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.details.length()").value(3))
+				.andExpect(jsonPath("$.details[0]").value(startsWith("cgpa: ")))
+				.andExpect(jsonPath("$.details[1]").value(startsWith("email: ")))
+				.andExpect(jsonPath("$.details[2]").value("password: size must be between 8 and 72"));
+	}
+
+	// ---------------------------------------------------------------------
+	// CORS (default allowed origin: http://localhost:5173)
+	// ---------------------------------------------------------------------
+
+	@Test
+	void preflightFromAllowedOriginIsAnsweredWithoutToken() throws Exception {
+		mvc.perform(request(HttpMethod.OPTIONS, "/api/companies")
+				.header("Origin", "http://localhost:5173")
+				.header("Access-Control-Request-Method", "GET")
+				.header("Access-Control-Request-Headers", "authorization"))
+				.andExpect(status().isOk())
+				.andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"))
+				.andExpect(header().exists("Access-Control-Allow-Methods"));
+	}
+
+	@Test
+	void preflightFromUnknownOriginIsRejected() throws Exception {
+		mvc.perform(request(HttpMethod.OPTIONS, "/api/companies")
+				.header("Origin", "https://evil.example")
+				.header("Access-Control-Request-Method", "GET"))
+				.andExpect(status().isForbidden())
+				.andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
+	}
+
+	@Test
+	void actualRequestFromAllowedOriginGetsCorsHeader() throws Exception {
+		mvc.perform(request(HttpMethod.GET, "/api/companies")
+				.header("Origin", "http://localhost:5173")
+				.header("Authorization", "Bearer " + adminToken))
+				.andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
 	}
 
 	// ---------------------------------------------------------------------

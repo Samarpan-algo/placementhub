@@ -1118,3 +1118,87 @@ Then the application becomes `SELECTED` (audited, `SELECTION`). If the drive is 
 **Why:** these tests found two real bugs before Postman did: the null-`Instant` typing error, and a `NullPointerException` in `Map.of().get(null)` for system audit rows.
 
 **TODO Milestone 11:** move all DB tests to a separate test database (a second Compose service or the CI Postgres service), so they never depend on, or briefly lock rows in, the dev database.
+
+---
+
+## 62. The JWT is stored in `localStorage` (the XSS trade-off)
+**Milestone:** 8 · **Date:** 2026-11-02
+
+**Decision:** after login the frontend keeps the access token in `localStorage` (`placementhub.token`). Every request reads it there (the axios request interceptor) and sends it as `Authorization: Bearer <token>`. Logout, a 401, and an expired or unreadable token on page load all remove it.
+
+**Alternatives:**
+- **An `HttpOnly` cookie set by the backend:** JavaScript can't read it, so an XSS bug can't steal it. But the browser then sends it automatically, so we'd need CSRF protection (SecurityConfig disables CSRF because there are no cookies, see #32), `SameSite` settings, and cross-site cookie setup between Vercel and Render. That's a backend change outside v1's scope.
+- **Memory only (a React state variable):** an XSS bug can't read storage it doesn't have, but every page refresh logs the user out. Without refresh tokens (v2) that's bad UX.
+- **`sessionStorage`:** the same XSS exposure as `localStorage`; it only adds "logged out when the tab closes".
+
+**Why:** the simplest option that survives a refresh and needs no backend change. The risk is **XSS**: any script that runs on our page can read `localStorage` and send the token somewhere else. It's limited because:
+- React escapes everything it renders (we never use `dangerouslySetInnerHTML`).
+- There are no third-party scripts.
+- The token lives for only 2 hours.
+- The backend still checks the role and ownership on every request.
+
+**Known limitation / v2:** an `HttpOnly` + `Secure` + `SameSite` cookie with refresh tokens, and a Content-Security-Policy header when deploying (M12).
+
+---
+
+## 63. The frontend reads id, email and role from the JWT payload, not from a new endpoint
+**Milestone:** 8 · **Date:** 2026-11-02
+
+**Decision:** the login response is still `{accessToken, tokenType, expiresIn, role}`. The frontend decodes the token's payload with a small helper (`auth/jwt.js`: base64url → base64 → bytes → UTF-8 → JSON, no npm package). It reads `sub` (user id), `email`, `role` and `exp`. On page load a token that is already expired, or that can't be read, counts as logged out.
+
+**Alternatives:**
+- Add `id`/`email` to `LoginResponse` (a backend change for data the token already has; it also wouldn't help after a refresh, when only the token is left).
+- Call a `/api/auth/me` endpoint on every page load (an extra request and a new endpoint).
+- A JWT library such as `jwt-decode` (an extra dependency for 10 lines of code).
+
+**Why:** the token is the one thing that survives a refresh, and it already holds what the UI needs. Decoding **doesn't verify** the signature, and it doesn't have to: the frontend uses the claims only to decide what to *show*. Someone who edits their token's role in `localStorage` sees the admin pages' frame, and every admin API call then fails with 401 (the signature no longer matches).
+
+---
+
+## 64. Dev uses a Vite proxy; deployed origins come from `CORS_ALLOWED_ORIGINS`
+**Milestone:** 8 · **Date:** 2026-11-02
+
+**Decision:**
+- **Dev:** `vite.config.js` proxies `/api` to `http://localhost:8080`. The browser only talks to `localhost:5173`, so every call is same-origin and CORS never applies.
+- **Deployed (M12):** the frontend's `VITE_API_BASE_URL` points at the backend, and the backend allows the frontend's origin through `CorsConfig` (`app.cors.allowed-origins` = `CORS_ALLOWED_ORIGINS`, comma-separated, default `http://localhost:5173`). Only `/api/**`, the methods we use, and the `Authorization`/`Content-Type` headers are allowed. `Content-Disposition` is exposed for the CSV file name, and there are no credentials because we use no cookies.
+- `SecurityConfig` calls `.cors()`, so CORS runs **before** authentication: a browser's preflight `OPTIONS` (which never carries a token) gets its CORS answer instead of a 401.
+
+**Alternatives:**
+- `@CrossOrigin` on each controller (easy to forget one, and it runs after security, so preflights would get a 401).
+- `allowedOrigins("*")` (any website could call our API from a victim's browser with a stolen token; also not allowed together with credentials if we ever move to cookies).
+- CORS in dev instead of a proxy (works, but every local run then depends on the backend's CORS settings, and the dev setup would differ from a same-origin deployment).
+
+**Why:** the same-origin setup in dev is the least moving parts. The env var lets M12 set the real Vercel/Netlify URL without a code change. Tests check that an allowed preflight gets the headers without a token and an unknown origin gets a 403.
+
+---
+
+## 65. One global 401 handler: clear the token, full reload to `/login`
+**Milestone:** 8 · **Date:** 2026-11-02
+
+**Decision:** an axios response interceptor handles every 401 **for a request that carried a token** (except `/api/auth/*`). It removes the token, saves "Session expired, please log in again." in `sessionStorage`, and does `window.location.assign('/login')`. The login page shows that message once, then deletes it.
+
+A 401 from `/api/auth/login` means a wrong email or password, so the login page shows it like any other error. A 401 on a request without a token can't be an expired session.
+
+**Alternatives:**
+- Handle 401 in every page (repeated code, easy to forget).
+- Navigate with React Router from the interceptor (it lives outside React, so it would need a navigate function passed in from a component).
+- Check `exp` before every request (the backend is the source of truth anyway, and clocks can differ).
+
+**Why:** one place, a few lines, and the full reload throws away all in-memory state, so no page can keep showing another user's data.
+
+**Related (403):** a wrong-role URL is handled by `ProtectedRoute` before any request (redirect to the user's own home). A 403 from the API is shown as a normal error.
+
+**Known limitation:** logging out in one tab doesn't log out other open tabs until their next API call returns 401 (or they reload). A `storage` event listener could fix that in v2.
+
+---
+
+## 66. Validation errors also list each field error in `details[]`
+**Milestone:** 8 · **Date:** 2026-11-02
+
+**Decision:** a Bean Validation 400 still has the same `message` (`"Validation failed: a: …; b: …"`, sorted by field). It now also has `details: ["a: …", "b: …"]`, the same pattern as 422 and the batch 400/409s. The frontend's `toApiError` shows the list (with "Please fix the following:" instead of repeating the joined message).
+
+**Alternatives:**
+- Split the message on `"; "` in the frontend (fragile: a message could contain `;`).
+- Return a map of field → message (a second error shape).
+
+**Why:** additive, so the existing tests and Postman checks on `message` still pass, and every error the UI shows comes through one shape. The register form checks the same rules first, so a student normally sees errors under each field before anything is sent. `details[]` covers what the client can't check (it's also the safety net if the two drift apart).

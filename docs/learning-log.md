@@ -218,3 +218,29 @@ Short notes, in plain words, on what I learned in each milestone.
 - **Let the database aggregate:** `COUNT … FILTER`, `AVG` and `percentile_cont(0.5)` return a handful of rows; Java only divides counts into percentages.
 - **"Average package" needs a definition:** I use each placed student's *best* offer, so a student with two offers isn't counted twice.
 - **Postman variable scopes:** `pm.collectionVariables.get('baseUrl')` ignores a `--env-var` override; `pm.variables.get` respects it. Three failing assertions came from scripts calling the *old* app on another port.
+
+---
+
+## Milestone 8: Frontend setup and authentication (2026-11-02)
+
+**What I built:**
+- A React + Vite app in `frontend/` (JavaScript, plain CSS with a few CSS variables for colors and spacing).
+- A Vite dev proxy (`/api` → `localhost:8080`) and, in the backend, a CORS config from `CORS_ALLOWED_ORIGINS` for deployment.
+- One axios client: it adds the Bearer token to every request; on a 401 for a request that sent a token, it clears the token and reloads to `/login` with "Session expired". A helper turns our error JSON into `{status, message, details}`.
+- `AuthContext` (token + user from the JWT payload, in `localStorage`), `ProtectedRoute` (not logged in → login, wrong role → your own home) and `PublicOnlyRoute`.
+- Login, student registration (the same checks as `RegisterRequest`, every backend error listed) and placeholder home pages with a header and Logout.
+- Backend: validation 400s now also list each field error in `details[]`. 425 backend tests in total (6 new).
+
+**What I learned:**
+- **Components are functions that return JSX.** JSX looks like HTML but is JavaScript: `className` instead of `class`, `{value}` to insert data.
+- **`useState` = memory for a component.** Calling the setter re-renders the component with the new value. Replace state (`{...form, [name]: value}`), never change it in place, or React won't notice.
+- **Controlled inputs:** the input shows `value={state}` and `onChange` updates the state, so React state is the single source of truth for the form.
+- **`useEffect(fn, [])`** runs once after the page appears, which is the place for "load data when the page opens". The cleanup flag (`ignore`) stops an old request from updating a page that's gone.
+- **StrictMode runs effects twice in dev** on purpose, to find missing cleanups. So "remove the flash message" had to be safe to run twice (peek during render, delete in an effect).
+- **Context + a custom hook (`useAuth`)** shares the logged-in user with every component without passing props through every level.
+- **React Router:** `<Routes>`/`<Route>` match the URL; `<Navigate replace>` redirects while rendering; nested routes render in the parent's `<Outlet />`; `navigate(path, { state })` carries a one-time message to the next page.
+- **Frontend checks are for UX, the backend is for security.** `ProtectedRoute` only hides pages; if someone edits their token's role, the backend's signature check still returns 401 for every call.
+- **A JWT payload isn't secret:** it's base64url-encoded JSON, so reading it needs about 10 lines (swap `-`/`_`, add `=` padding, `atob`, then `TextDecoder` for UTF-8). Verifying it needs the secret, so only the backend can do that.
+- **The proxy makes CORS disappear in dev:** the browser only ever talks to `localhost:5173`. CORS is a browser rule, so curl and Postman never needed it. Preflight `OPTIONS` requests never carry a token, so CORS has to run before Spring Security's authentication.
+- **Not every 401 means "session expired".** A wrong password is also a 401, so the global handler skips `/api/auth/*` and requests sent without a token.
+- **Windows gotcha:** stopping `mvnw spring-boot:run` can leave its Java child process running and still holding the port.

@@ -1,0 +1,96 @@
+import { useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router';
+import { toApiError } from '../api/errors.js';
+import { useAuth } from '../auth/AuthContext.jsx';
+import { clearFlashMessage, peekFlashMessage } from '../auth/storage.js';
+import { homePathFor } from '../auth/roles.js';
+import ErrorAlert from '../components/ErrorAlert.jsx';
+import Field from '../components/Field.jsx';
+
+/** The message to show above the form (or null), and its style, decided by where it came from. */
+function initialNotice(location) {
+  // From the previous page (router state): good news such as "Registered…" or "You have logged out."
+  if (location.state?.message) {
+    return { text: location.state.message, kind: 'success' };
+  }
+  // From the 401 handler, stored before it reloaded the page: "Session expired…" is not good news
+  const flash = peekFlashMessage();
+  return flash ? { text: flash, kind: 'warning' } : null;
+}
+
+export default function LoginPage() {
+  const { login } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const [notice] = useState(() => initialNotice(location));
+  // The email from registration, so the student doesn't have to type it again
+  const [email, setEmail] = useState(location.state?.email ?? '');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  // useEffect runs after the page is on screen; [] = only once. The flash message is one-time only.
+  useEffect(() => {
+    clearFlashMessage();
+  }, []);
+
+  async function handleSubmit(event) {
+    event.preventDefault(); // stop the browser's own form submit (a full page reload)
+    // Trim the email (not the password: spaces can be part of it, and registration kept them as typed)
+    const trimmedEmail = email.trim();
+    setEmail(trimmedEmail);
+    if (!trimmedEmail || !password) {
+      setError({ message: 'Enter your email and password.', details: [] });
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      const user = await login(trimmedEmail, password);
+      navigate(homePathFor(user.role), { replace: true });
+    } catch (err) {
+      setError(toApiError(err));
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="page">
+      <div className="card auth-card">
+        <h1>Log in</h1>
+        <form className="form" onSubmit={handleSubmit} noValidate>
+          {notice && !error && <div className={`alert alert-${notice.kind}`}>{notice.text}</div>}
+          <ErrorAlert error={error} />
+
+          <Field id="email" label="Email">
+            {/* A "controlled" input: React state holds the value, onChange updates it on every keystroke */}
+            <input
+              id="email"
+              type="email"
+              autoComplete="username"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </Field>
+          <Field id="password" label="Password">
+            <input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </Field>
+
+          <button type="submit" className="btn btn-primary" disabled={submitting}>
+            {submitting ? 'Logging in…' : 'Log in'}
+          </button>
+        </form>
+        <p className="muted">
+          New student? <Link to="/register">Create an account</Link>
+        </p>
+      </div>
+    </div>
+  );
+}
