@@ -14,6 +14,7 @@ const NAV_LINKS = {
   [ROLES.ADMIN]: [
     { to: '/admin', label: 'Home', end: true },
     { to: '/admin/companies', label: 'Companies' },
+    { to: '/admin/drives', label: 'Drives' },
   ],
 };
 

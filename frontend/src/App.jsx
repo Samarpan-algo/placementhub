@@ -8,6 +8,9 @@ import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
 import AdminHomePage from './pages/admin/AdminHomePage.jsx';
 import CompaniesPage from './pages/admin/CompaniesPage.jsx';
+import AdminDriveDetailPage from './pages/admin/DriveDetailPage.jsx';
+import DriveFormPage from './pages/admin/DriveFormPage.jsx';
+import AdminDrivesPage from './pages/admin/DrivesPage.jsx';
 import ApplicationDetailPage from './pages/student/ApplicationDetailPage.jsx';
 import DriveDetailPage from './pages/student/DriveDetailPage.jsx';
 import DrivesPage from './pages/student/DrivesPage.jsx';
@@ -73,6 +76,11 @@ export default function App() {
       >
         <Route index element={<AdminHomePage />} />
         <Route path="companies" element={<CompaniesPage />} />
+        <Route path="drives" element={<AdminDrivesPage />} />
+        {/* "new" is a fixed path, so it wins over ":id" for /admin/drives/new */}
+        <Route path="drives/new" element={<DriveFormPage />} />
+        <Route path="drives/:id" element={<AdminDriveDetailPage />} />
+        <Route path="drives/:id/edit" element={<DriveFormPage />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Route>
 

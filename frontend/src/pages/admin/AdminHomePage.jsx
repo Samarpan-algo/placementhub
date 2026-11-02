@@ -36,7 +36,7 @@ export default function AdminHomePage() {
         </p>
       )}
       <p>
-        Manage <Link to="/admin/companies">companies</Link>.
+        Manage <Link to="/admin/companies">companies</Link> and <Link to="/admin/drives">drives</Link>.
       </p>
       <p className="muted">Rounds, results, policies, the audit log and stats are coming next.</p>
     </div>

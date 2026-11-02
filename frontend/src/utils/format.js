@@ -47,3 +47,33 @@ export function formatJobType(jobType) {
 export function isInFuture(iso) {
   return new Date(iso).getTime() > Date.now();
 }
+
+// ---------- <input type="datetime-local"> in IST ----------
+// The input holds a wall-clock time with no zone, e.g. "2026-11-20T18:00". Admins type Indian time, so:
+//   input -> API: add India's fixed offset (+05:30, no daylight saving) and convert to a UTC instant.
+//   API -> input: show the UTC instant's wall-clock time in Asia/Kolkata.
+// Both work the same whatever timezone the admin's laptop is set to.
+
+const INPUT_PARTS = new Intl.DateTimeFormat('en-GB', {
+  timeZone: IST,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23', // 00-23, so midnight is "00", not "24"
+});
+
+/** "2026-11-20T12:30:00Z" -> "2026-11-20T18:00" (IST) for a datetime-local input; "" for null. */
+export function isoToIstInput(iso) {
+  if (!iso) return '';
+  const p = Object.fromEntries(INPUT_PARTS.formatToParts(new Date(iso)).map((part) => [part.type, part.value]));
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+
+/** "2026-11-20T18:00" (IST) -> "2026-11-20T12:30:00.000Z" for the API; null if it isn't a complete date-time. */
+export function istInputToIso(value) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}:00+05:30`);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
