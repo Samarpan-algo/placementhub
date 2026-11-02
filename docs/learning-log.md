@@ -169,3 +169,27 @@ Short notes, in plain words, on what I learned in each milestone.
 - **Reject what doesn't apply instead of ignoring it:** silently dropping `maxOffers` on ONE_OFFER would make an admin think a limit exists. A 400 tells them right away.
 - **Know where a rule *can't* be enforced:** policies are checked at apply time, but offers are created later when an admin marks SELECTED. A student can apply to two drives and be selected by both. That's written down as a known limitation, and Milestone 7 must re-check when marking SELECTED.
 - **Demo data with SQL, then clean up:** there's no API to mark SELECTED yet, so I inserted one SELECTED row with psql, saw the real 422 messages, and then deleted it and restored the policy rows exactly.
+
+---
+
+## Milestone 7, Session A: Rounds, results, selection, audit log (2026-11-02)
+
+**What I built:**
+- An audit log: every application status change (apply, withdraw, round results, selection, policy, completion) writes who, old → new, the reason and the trigger, in the same transaction.
+- Rounds for a drive (numbered 1, 2, 3…, fixed after creation), and bulk round results that save all or nothing, with corrections.
+- Final selection: it checks the final round and the policies, then re-checks the student's other pending applications. This closes the gap from decision 45.
+- Completing a drive rejects whatever is still pending. Students see round-by-round results and remarks.
+- 83 new tests (311 in total), and a repeatable Postman lifecycle folder (full collection: 172/172 assertions, run twice).
+
+**What I learned:**
+- **Audit in the same transaction:** `Propagation.MANDATORY` makes the audit method refuse to run outside a transaction. A rolled-back change can't leave an audit row behind, and a committed change always has one.
+- **One door for every status change:** putting "set status + write audit" in one helper (`StatusChanges`) means no code path can forget the audit. "No change → no row" is decided in one place too.
+- **Derive, don't remember:** an application's status is *calculated from all its round results* (a small pure function). So a correction in any round gives the right status, with no "undo" code.
+- **All-or-nothing batches:** first validate every item and collect every problem, then save. The admin gets one list of everything wrong, and the DB is never half-updated. Upsert makes resending the fixed sheet safe.
+- **400 vs 409 in a batch:** "this id isn't part of this drive" is a bad request. "This application is already SELECTED" is a conflict with current state. The batch returns 400 if any item is a bad request.
+- **Reuse the rule engine for a new question:** "may this pending application continue after an offer?" is the same as "could the student apply now?", so the M6 `PolicyEngine` answered it unchanged. With DREAM_OFFER, applications to drives above the threshold correctly stay active.
+- **Row locks as a mutex:** `SELECT … FOR UPDATE` on the student's row makes two selections for the same student run one after the other, so both can't pass ONE_OFFER. A UNIQUE constraint can't do that, because the rule spans different drives.
+- **Lock first, then load:** if Hibernate has already loaded an application before the lock, it keeps the old copy. So batches read only the ids, lock, and then load the entities fresh.
+- **Same lock order everywhere = no deadlocks:** always the drive, then students by ascending id.
+- **IDENTITY ids insert immediately:** `save()` on a new entity runs the INSERT right away, so every NOT NULL field must be set *before* `save()`. I caught this before the tests ran.
+- **Column limits apply to generated text too:** several joined policy reasons can exceed `VARCHAR(300)`, so the helper cuts them instead of failing the transaction.
