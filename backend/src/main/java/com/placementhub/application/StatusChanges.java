@@ -18,6 +18,9 @@ import com.placementhub.audit.AuditService;
 @Component
 public class StatusChanges {
 
+	/** The length of applications.status_reason (VARCHAR(300)). */
+	static final int MAX_REASON_LENGTH = 300;
+
 	private final AuditService auditService;
 
 	public StatusChanges(AuditService auditService) {
@@ -36,6 +39,7 @@ public class StatusChanges {
 	 */
 	public boolean change(Application application, ApplicationStatus status, String reason,
 			StatusChangeTrigger trigger) {
+		reason = fitReason(reason);
 		ApplicationStatus oldStatus = application.getStatus();
 		String oldReason = application.getStatusReason();
 		if (oldStatus == status && Objects.equals(oldReason, reason)) {
@@ -46,6 +50,14 @@ public class StatusChanges {
 		auditService.record(AuditEntityType.APPLICATION, application.getId(), AuditAction.STATUS_CHANGED,
 				value(oldStatus, oldReason, null), value(status, reason, trigger));
 		return true;
+	}
+
+	/** Long policy reasons (several joined) are cut with "..." rather than failing the whole transaction. */
+	static String fitReason(String reason) {
+		if (reason == null || reason.length() <= MAX_REASON_LENGTH) {
+			return reason;
+		}
+		return reason.substring(0, MAX_REASON_LENGTH - 3) + "...";
 	}
 
 	/** LinkedHashMap, not Map.of: the reason may be null, and the JSON keys keep a fixed order. */

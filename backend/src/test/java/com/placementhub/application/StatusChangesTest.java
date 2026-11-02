@@ -81,4 +81,13 @@ class StatusChangesTest {
 		verify(auditService).record(any(), anyLong(), any(), any(), any());
 	}
 
+	@Test
+	void reasonLongerThanTheColumnIsCutWithAnEllipsis() {
+		String longReason = "x".repeat(400);
+
+		statusChanges.change(application, ApplicationStatus.INELIGIBLE, longReason, StatusChangeTrigger.POLICY);
+
+		assertThat(application.getStatusReason()).hasSize(StatusChanges.MAX_REASON_LENGTH).endsWith("...");
+	}
+
 }

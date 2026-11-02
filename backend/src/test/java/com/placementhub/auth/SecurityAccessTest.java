@@ -35,6 +35,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.placementhub.application.ApplicationService;
+import com.placementhub.application.SelectionService;
 import com.placementhub.company.CompanyService;
 import com.placementhub.config.JwtConfig;
 import com.placementhub.config.JwtProperties;
@@ -77,6 +78,8 @@ class SecurityAccessTest {
 	private PolicyService policyService;
 	@MockitoBean
 	private RoundService roundService;
+	@MockitoBean
+	private SelectionService selectionService;
 	@MockitoBean
 	private RoundResultService roundResultService;
 	@MockitoBean
