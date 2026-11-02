@@ -7,8 +7,10 @@ import AppLayout from './components/AppLayout.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
 import AdminHomePage from './pages/admin/AdminHomePage.jsx';
+import ApplicationDetailPage from './pages/student/ApplicationDetailPage.jsx';
 import DriveDetailPage from './pages/student/DriveDetailPage.jsx';
 import DrivesPage from './pages/student/DrivesPage.jsx';
+import MyApplicationsPage from './pages/student/MyApplicationsPage.jsx';
 import StudentHomePage from './pages/student/StudentHomePage.jsx';
 
 /** "/" and unknown URLs: logged in → your own home, otherwise → login. */
@@ -52,6 +54,8 @@ export default function App() {
         <Route path="drives" element={<DrivesPage />} />
         {/* :id is a URL parameter; the page reads it with useParams() */}
         <Route path="drives/:id" element={<DriveDetailPage />} />
+        <Route path="applications" element={<MyApplicationsPage />} />
+        <Route path="applications/:id" element={<ApplicationDetailPage />} />
         {/* any other /student/... URL → back to the dashboard */}
         <Route path="*" element={<Navigate to="/student" replace />} />
       </Route>
