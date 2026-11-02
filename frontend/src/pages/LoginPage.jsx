@@ -7,14 +7,23 @@ import { homePathFor } from '../auth/roles.js';
 import ErrorAlert from '../components/ErrorAlert.jsx';
 import Field from '../components/Field.jsx';
 
+/** The message to show above the form (or null), and its style, decided by where it came from. */
+function initialNotice(location) {
+  // From the previous page (router state): good news such as "Registered…" or "You have logged out."
+  if (location.state?.message) {
+    return { text: location.state.message, kind: 'success' };
+  }
+  // From the 401 handler, stored before it reloaded the page: "Session expired…" is not good news
+  const flash = peekFlashMessage();
+  return flash ? { text: flash, kind: 'warning' } : null;
+}
+
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
-  // The success/info message comes either from the previous page (router state: "Registered…",
-  // "You have logged out.") or from the 401 handler, which stored it before reloading the page.
-  const [notice] = useState(() => location.state?.message ?? peekFlashMessage());
+  const [notice] = useState(() => initialNotice(location));
   // The email from registration, so the student doesn't have to type it again
   const [email, setEmail] = useState(location.state?.email ?? '');
   const [password, setPassword] = useState('');
@@ -51,7 +60,7 @@ export default function LoginPage() {
       <div className="card auth-card">
         <h1>Log in</h1>
         <form className="form" onSubmit={handleSubmit} noValidate>
-          {notice && !error && <div className="alert alert-success">{notice}</div>}
+          {notice && !error && <div className={`alert alert-${notice.kind}`}>{notice.text}</div>}
           <ErrorAlert error={error} />
 
           <Field id="email" label="Email">
