@@ -4,16 +4,7 @@ import api from '../api/client.js';
 import { toApiError } from '../api/errors.js';
 import ErrorAlert from '../components/ErrorAlert.jsx';
 import Field from '../components/Field.jsx';
-
-// Must match the backend's Branch enum (common/Branch.java)
-const BRANCHES = [
-  { code: 'CSE', name: 'Computer Science' },
-  { code: 'IT', name: 'Information Technology' },
-  { code: 'ECE', name: 'Electronics & Communication' },
-  { code: 'EEE', name: 'Electrical & Electronics' },
-  { code: 'ME', name: 'Mechanical' },
-  { code: 'CE', name: 'Civil' },
-];
+import { BRANCHES, branchLabel } from '../utils/branches.js';
 
 const EMPTY_FORM = {
   email: '',
@@ -92,11 +83,6 @@ function validate(form) {
   if (form.phone && !PHONE_PATTERN.test(form.phone)) errors.phone = '10 to 14 digits, optionally starting with +';
 
   return errors;
-}
-
-function branchLabel(code) {
-  const branch = BRANCHES.find((b) => b.code === code);
-  return branch ? `${branch.code} (${branch.name})` : code;
 }
 
 /** The "check before you send" screen. Pure display: the parent owns the data and the two actions. */
