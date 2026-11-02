@@ -125,6 +125,7 @@ class SecurityAccessTest {
 				new Endpoint(HttpMethod.POST, "/api/drives/1/open", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/drives/1/rounds", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/drives/1/applications", Role.TPO_ADMIN),
+				new Endpoint(HttpMethod.GET, "/api/drives/1/applications/export", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/policies", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.PUT, "/api/policies/DREAM_OFFER", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/students/me", Role.STUDENT),
