@@ -46,6 +46,7 @@ import com.placementhub.drive.DriveService;
 import com.placementhub.policy.PolicyService;
 import com.placementhub.round.RoundResultService;
 import com.placementhub.round.RoundService;
+import com.placementhub.stats.StatsService;
 import com.placementhub.student.StudentDriveService;
 import com.placementhub.student.StudentService;
 import com.placementhub.user.Role;
@@ -82,6 +83,8 @@ class SecurityAccessTest {
 	private PolicyService policyService;
 	@MockitoBean
 	private RoundService roundService;
+	@MockitoBean
+	private StatsService statsService;
 	@MockitoBean
 	private SelectionService selectionService;
 	@MockitoBean
@@ -131,6 +134,7 @@ class SecurityAccessTest {
 				new Endpoint(HttpMethod.GET, "/api/drives/1/applications/export", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/policies", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/audit", Role.TPO_ADMIN),
+				new Endpoint(HttpMethod.GET, "/api/stats", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.PUT, "/api/policies/DREAM_OFFER", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/students/me", Role.STUDENT),
 				new Endpoint(HttpMethod.GET, "/api/students/me/drives", Role.STUDENT),
