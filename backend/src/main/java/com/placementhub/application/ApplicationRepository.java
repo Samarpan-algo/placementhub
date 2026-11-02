@@ -1,5 +1,6 @@
 package com.placementhub.application;
 
+import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -11,6 +12,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import com.placementhub.common.Branch;
 import com.placementhub.policy.Offer;
 
 public interface ApplicationRepository extends JpaRepository<Application, Long> {
@@ -48,6 +50,24 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
 			ORDER BY a.id
 			""")
 	List<Offer> findSelectedOffers(@Param("studentId") Long studentId);
+
+	// ---------- admin: applicants list and CSV export ----------
+
+	/**
+	 * A drive's applicants with optional filters (null = no filter). The student and their user (email)
+	 * are JOINed into the same query: both are many-to-one, so this is safe with paging and avoids N+1.
+	 * With an unpaged Pageable, Spring Data skips the count query.
+	 */
+	@EntityGraph(attributePaths = { "student", "student.user" })
+	@Query("""
+			SELECT a FROM Application a
+			WHERE a.drive.id = :driveId
+			  AND (:status IS NULL OR a.status = :status)
+			  AND (:branch IS NULL OR a.student.branch = :branch)
+			  AND (:minCgpa IS NULL OR a.student.cgpa >= :minCgpa)
+			""")
+	Page<Application> searchApplicants(@Param("driveId") Long driveId, @Param("status") ApplicationStatus status,
+			@Param("branch") Branch branch, @Param("minCgpa") BigDecimal minCgpa, Pageable pageable);
 
 	// ---------- admin: rounds, selection, completion ----------
 

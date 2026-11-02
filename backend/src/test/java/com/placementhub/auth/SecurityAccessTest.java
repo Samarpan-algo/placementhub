@@ -34,6 +34,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import com.placementhub.application.ApplicantService;
 import com.placementhub.application.ApplicationService;
 import com.placementhub.application.SelectionService;
 import com.placementhub.company.CompanyService;
@@ -74,6 +75,8 @@ class SecurityAccessTest {
 	private StudentDriveService studentDriveService;
 	@MockitoBean
 	private ApplicationService applicationService;
+	@MockitoBean
+	private ApplicantService applicantService;
 	@MockitoBean
 	private PolicyService policyService;
 	@MockitoBean
@@ -121,6 +124,7 @@ class SecurityAccessTest {
 				new Endpoint(HttpMethod.GET, "/api/drives/1", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.POST, "/api/drives/1/open", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/drives/1/rounds", Role.TPO_ADMIN),
+				new Endpoint(HttpMethod.GET, "/api/drives/1/applications", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/policies", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.PUT, "/api/policies/DREAM_OFFER", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/students/me", Role.STUDENT),

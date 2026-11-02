@@ -11,6 +11,8 @@ public interface DriveRoundRepository extends JpaRepository<DriveRound, Long> {
 
 	List<DriveRound> findByDriveIdOrderByRoundNoAsc(Long driveId);
 
+	long countByDriveId(Long driveId);
+
 	/** The drive is part of the query: a round of another drive is simply "not found". */
 	Optional<DriveRound> findByIdAndDriveId(Long id, Long driveId);
 
