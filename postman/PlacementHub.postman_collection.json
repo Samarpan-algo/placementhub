@@ -1723,6 +1723,7 @@
                   "  const body = pm.response.json();",
                   "  pm.expect(body.drive.id).to.eql(Number(pm.collectionVariables.get('studentDriveId')));",
                   "  pm.expect(body.applicationStatus).to.eql('APPLIED');",
+                  "  pm.expect(body.applicationId).to.eql(Number(pm.collectionVariables.get('applicationId')));",
                   "  pm.expect(body.reasons).to.be.an('array');",
                   "});"
                 ]

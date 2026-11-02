@@ -52,6 +52,7 @@ class StudentDriveDetailTest {
 	private static final Instant NOW = Instant.parse("2026-11-01T10:00:00Z");
 	private static final Long STUDENT_ID = 9L;
 	private static final Long DRIVE_ID = 7L;
+	private static final Long APPLICATION_ID = 31L;
 	private static final String NOT_FOUND = "Drive with id 7 not found";
 
 	@Mock
@@ -107,6 +108,7 @@ class StudentDriveDetailTest {
 		assertThat(response.eligible()).isTrue();
 		assertThat(response.reasons()).isEmpty();
 		assertThat(response.applicationStatus()).isNull();
+		assertThat(response.applicationId()).isNull();
 	}
 
 	@Test
@@ -128,7 +130,10 @@ class StudentDriveDetailTest {
 		givenDrive(DriveStatus.OPEN);
 		givenApplication(ApplicationStatus.APPLIED);
 
-		assertThat(service.getOne(DRIVE_ID).applicationStatus()).isEqualTo(ApplicationStatus.APPLIED);
+		StudentDriveResponse response = service.getOne(DRIVE_ID);
+
+		assertThat(response.applicationStatus()).isEqualTo(ApplicationStatus.APPLIED);
+		assertThat(response.applicationId()).isEqualTo(APPLICATION_ID);
 	}
 
 	@ParameterizedTest
@@ -217,6 +222,7 @@ class StudentDriveDetailTest {
 	private void givenApplication(ApplicationStatus status) {
 		Application application = new Application(drive, student);
 		application.setStatus(status);
+		ReflectionTestUtils.setField(application, "id", APPLICATION_ID);
 		when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID))
 				.thenReturn(Optional.of(application));
 	}

@@ -83,8 +83,8 @@ class StudentDriveServiceTest {
 		when(driveRepository.findByStatusOrderByRegistrationDeadlineAsc(DriveStatus.OPEN)).thenReturn(drives);
 		// The student applied to A and withdrew from C
 		when(applicationRepository.findStatuses(STUDENT_ID, List.of(1L, 2L, 3L, 4L))).thenReturn(List.of(
-				new DriveApplicationStatus(1L, ApplicationStatus.APPLIED),
-				new DriveApplicationStatus(3L, ApplicationStatus.WITHDRAWN)));
+				new DriveApplicationStatus(1L, 101L, ApplicationStatus.APPLIED),
+				new DriveApplicationStatus(3L, 103L, ApplicationStatus.WITHDRAWN)));
 	}
 
 	@Test
@@ -93,6 +93,8 @@ class StudentDriveServiceTest {
 
 		assertThat(page.content()).extracting(StudentDriveResponse::applicationStatus)
 				.containsExactly(ApplicationStatus.APPLIED, null, ApplicationStatus.WITHDRAWN, null);
+		assertThat(page.content()).extracting(StudentDriveResponse::applicationId)
+				.containsExactly(101L, null, 103L, null);
 	}
 
 	@Test

@@ -31,7 +31,7 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
 
 	/** One query for the whole browse page: the student's status on each of the given drives. */
 	@Query("""
-			SELECT new com.placementhub.application.DriveApplicationStatus(a.drive.id, a.status)
+			SELECT new com.placementhub.application.DriveApplicationStatus(a.drive.id, a.id, a.status)
 			FROM Application a
 			WHERE a.student.id = :studentId AND a.drive.id IN :driveIds
 			""")
