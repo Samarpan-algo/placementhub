@@ -1,0 +1,167 @@
+import { useState } from 'react';
+import api from '../../api/client.js';
+import { toApiError } from '../../api/errors.js';
+import { useApi } from '../../api/useApi.js';
+import ErrorAlert from '../../components/ErrorAlert.jsx';
+import Field from '../../components/Field.jsx';
+import Loading from '../../components/Loading.jsx';
+import { branchLabel } from '../../utils/branches.js';
+import { formatDateTime } from '../../utils/format.js';
+
+const PHONE_PATTERN = /^\+?[0-9]{10,14}$/; // same regex as StudentProfileUpdateRequest.phone
+
+/** The same rules as StudentProfileUpdateRequest (the backend checks again). Expects trimmed values. */
+function validate(form) {
+  const errors = {};
+  if (!form.fullName) errors.fullName = 'Full name is required';
+  else if (form.fullName.length > 100) errors.fullName = 'At most 100 characters';
+  if (form.phone && !PHONE_PATTERN.test(form.phone)) errors.phone = '10 to 14 digits, optionally starting with +';
+  return errors;
+}
+
+/** Name and phone, the only fields a student may change. */
+function EditForm({ profile, onSaved, onCancel }) {
+  // Start from the saved values; `?? ''` because an input's value can't be null
+  const [form, setForm] = useState({ fullName: profile.fullName, phone: profile.phone ?? '' });
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  function handleChange(event) {
+    setForm({ ...form, [event.target.name]: event.target.value });
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    const values = { fullName: form.fullName.trim(), phone: form.phone.trim() };
+    setForm(values);
+    const errors = validate(values);
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setError({ message: 'Please fix the highlighted fields.', details: [] });
+      return;
+    }
+    setError(null);
+    setSaving(true);
+    try {
+      // An empty phone is sent as null, which removes it
+      await api.put('/api/students/me', { fullName: values.fullName, phone: values.phone || null });
+      onSaved();
+    } catch (err) {
+      setError(toApiError(err));
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className="form" onSubmit={handleSubmit} noValidate>
+      <ErrorAlert error={error} />
+      <Field id="fullName" label="Full name" error={fieldErrors.fullName}>
+        <input id="fullName" name="fullName" autoComplete="name" value={form.fullName} onChange={handleChange} />
+      </Field>
+      <Field id="phone" label="Phone (optional)" error={fieldErrors.phone} hint="Leave empty to remove it">
+        <input
+          id="phone"
+          name="phone"
+          type="tel"
+          autoComplete="tel"
+          placeholder="+919876543210"
+          value={form.phone}
+          onChange={handleChange}
+        />
+      </Field>
+      <div className="button-row">
+        <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={saving}>
+          Cancel
+        </button>
+        <button type="submit" className="btn btn-primary" disabled={saving}>
+          {saving ? 'Saving…' : 'Save changes'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function Row({ label, children }) {
+  return (
+    <div className="review-row">
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+    </div>
+  );
+}
+
+export default function ProfilePage() {
+  const { data: profile, loading, error, reload } = useApi('/api/students/me');
+  const [editing, setEditing] = useState(false);
+  const [message, setMessage] = useState(null);
+
+  if (error) return <ErrorAlert error={error} onRetry={reload} />;
+  if (loading && !profile) return <Loading text="Loading your profile…" />;
+
+  function handleSaved() {
+    setEditing(false);
+    setMessage('Profile saved.');
+    reload();
+  }
+
+  return (
+    <div className="stack">
+      <section className="card">
+        <div className="page-heading">
+          <h1>My profile</h1>
+          {!editing && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => {
+                setMessage(null);
+                setEditing(true);
+              }}
+            >
+              Edit name and phone
+            </button>
+          )}
+        </div>
+        {message && <div className="alert alert-success">{message}</div>}
+
+        {editing ? (
+          <EditForm profile={profile} onSaved={handleSaved} onCancel={() => setEditing(false)} />
+        ) : (
+          <dl className="review-list">
+            <Row label="Full name">{profile.fullName}</Row>
+            <Row label="Phone">{profile.phone || <span className="muted">Not given</span>}</Row>
+            <Row label="Email">{profile.email}</Row>
+          </dl>
+        )}
+      </section>
+
+      <section className="card">
+        <h2>Academic details</h2>
+        <div className="alert alert-warning">
+          These were entered at registration and <strong>can&apos;t be changed</strong> here, because they decide
+          which drives you are eligible for. If one is wrong, contact the placement office.
+        </div>
+        <dl className="review-list">
+          <Row label="Roll number">{profile.rollNo}</Row>
+          <Row label="Branch">{branchLabel(profile.branch)}</Row>
+          <Row label="Graduation year">{profile.graduationYear}</Row>
+          <Row label="CGPA">{profile.cgpa}</Row>
+          <Row label="Active backlogs">{profile.activeBacklogs}</Row>
+        </dl>
+      </section>
+
+      <section className="card">
+        <h2>Resume</h2>
+        {profile.resumeUrl ? (
+          <a href={profile.resumeUrl} target="_blank" rel="noreferrer">
+            View my resume
+          </a>
+        ) : (
+          <p className="muted">No resume uploaded yet. Resume upload is coming in a later milestone.</p>
+        )}
+        <p className="muted">Profile last updated: {formatDateTime(profile.updatedAt)}</p>
+      </section>
+    </div>
+  );
+}
