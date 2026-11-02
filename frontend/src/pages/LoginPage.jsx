@@ -28,14 +28,17 @@ export default function LoginPage() {
 
   async function handleSubmit(event) {
     event.preventDefault(); // stop the browser's own form submit (a full page reload)
-    if (!email.trim() || !password) {
+    // Trim the email (not the password: spaces can be part of it, and registration kept them as typed)
+    const trimmedEmail = email.trim();
+    setEmail(trimmedEmail);
+    if (!trimmedEmail || !password) {
       setError({ message: 'Enter your email and password.', details: [] });
       return;
     }
     setError(null);
     setSubmitting(true);
     try {
-      const user = await login(email, password);
+      const user = await login(trimmedEmail, password);
       navigate(homePathFor(user.role), { replace: true });
     } catch (err) {
       setError(toApiError(err));

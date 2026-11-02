@@ -32,17 +32,30 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_PATTERN = /^\+?[0-9]{10,14}$/; // same regex as RegisterRequest.phone
 const CGPA_PATTERN = /^\d{1,2}(\.\d{1,2})?$/; // at most 2 decimals, like @Digits(integer = 2, fraction = 2)
 
+// Passwords are kept exactly as typed: spaces can be part of a password, and the backend doesn't trim them
+const UNTRIMMED_FIELDS = ['password', 'confirmPassword'];
+
 function isWholeNumber(value) {
   return /^\d+$/.test(value);
 }
 
+/** A copy of the form with leading/trailing spaces removed from every field except the passwords. */
+function trimValues(form) {
+  const trimmed = {};
+  for (const [name, value] of Object.entries(form)) {
+    trimmed[name] = UNTRIMMED_FIELDS.includes(name) ? value : value.trim();
+  }
+  return trimmed;
+}
+
 /**
  * The same rules as the backend's RegisterRequest, checked before sending so the student gets instant
- * feedback. The backend checks again anyway: never trust the client. Returns { field: message }.
+ * feedback. The backend checks again anyway: never trust the client.
+ * Expects already-trimmed values (see trimValues). Returns { field: message }.
  */
 function validate(form) {
   const errors = {};
-  const email = form.email.trim();
+  const { email } = form;
 
   if (!email) errors.email = 'Email is required';
   else if (!EMAIL_PATTERN.test(email) || email.length > 255) errors.email = 'Enter a valid email address';
@@ -54,11 +67,11 @@ function validate(form) {
   }
   if (form.confirmPassword !== form.password) errors.confirmPassword = 'Passwords do not match';
 
-  if (!form.fullName.trim()) errors.fullName = 'Full name is required';
-  else if (form.fullName.trim().length > 100) errors.fullName = 'At most 100 characters';
+  if (!form.fullName) errors.fullName = 'Full name is required';
+  else if (form.fullName.length > 100) errors.fullName = 'At most 100 characters';
 
-  if (!form.rollNo.trim()) errors.rollNo = 'Roll number is required';
-  else if (form.rollNo.trim().length > 30) errors.rollNo = 'At most 30 characters';
+  if (!form.rollNo) errors.rollNo = 'Roll number is required';
+  else if (form.rollNo.length > 30) errors.rollNo = 'At most 30 characters';
 
   if (!form.branch) errors.branch = 'Choose your branch';
 
@@ -75,8 +88,7 @@ function validate(form) {
     errors.activeBacklogs = 'Enter a whole number from 0 to 50';
   }
 
-  const phone = form.phone.trim();
-  if (phone && !PHONE_PATTERN.test(phone)) errors.phone = '10 to 14 digits, optionally starting with +';
+  if (form.phone && !PHONE_PATTERN.test(form.phone)) errors.phone = '10 to 14 digits, optionally starting with +';
 
   return errors;
 }
@@ -98,7 +110,10 @@ export default function RegisterPage() {
 
   async function handleSubmit(event) {
     event.preventDefault(); // stop the browser's own form submit (a full page reload)
-    const errors = validate(form);
+    // Trim once, then validate and send the same values. Showing them trimmed tells the student what we used.
+    const values = trimValues(form);
+    setForm(values);
+    const errors = validate(values);
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) {
       setError({ message: 'Please fix the highlighted fields.', details: [] });
@@ -109,17 +124,17 @@ export default function RegisterPage() {
     setSubmitting(true);
     try {
       await api.post('/api/auth/register', {
-        email: form.email.trim(),
-        password: form.password,
-        fullName: form.fullName.trim(),
-        rollNo: form.rollNo.trim(),
-        branch: form.branch,
-        graduationYear: Number(form.graduationYear),
-        cgpa: Number(form.cgpa),
-        activeBacklogs: Number(form.activeBacklogs),
-        phone: form.phone.trim() || null,
+        email: values.email,
+        password: values.password,
+        fullName: values.fullName,
+        rollNo: values.rollNo,
+        branch: values.branch,
+        graduationYear: Number(values.graduationYear),
+        cgpa: Number(values.cgpa),
+        activeBacklogs: Number(values.activeBacklogs),
+        phone: values.phone || null,
       });
-      navigate('/login', { state: { message: 'Registered, please log in.', email: form.email.trim() } });
+      navigate('/login', { state: { message: 'Registered, please log in.', email: values.email } });
     } catch (err) {
       // e.g. 409 "An account with this email already exists", or 400 with one detail per field
       setError(toApiError(err));
