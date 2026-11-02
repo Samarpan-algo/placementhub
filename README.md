@@ -1,6 +1,6 @@
 # PlacementHub
 
-> Status: backend v1 features done (Milestones 1–7): eligibility, policy engine, rounds, audit log, admin views and stats. Frontend next (Milestone 8).
+> Status: backend v1 features done (Milestones 1–7). Frontend started (Milestone 8): login, student registration, role-based routing. Student and admin pages next (Milestone 9).
 
 ## Problem
 
@@ -12,7 +12,7 @@ Most tier-2/3 colleges run campus placements through WhatsApp groups, Google For
 |----------|------------|
 | Backend  | Java 21, Spring Boot 4, Maven (wrapper), Spring Web, Spring Data JPA, Bean Validation |
 | Database | PostgreSQL 17 (local via Docker Compose) |
-| Frontend | React + Vite *(planned)* |
+| Frontend | React 19 + Vite (JavaScript), React Router, axios, plain CSS |
 | Testing  | JUnit 5, Mockito, MockMvc |
 | DevOps   | Docker, GitHub Actions *(planned)* |
 
@@ -20,6 +20,7 @@ Most tier-2/3 colleges run campus placements through WhatsApp groups, Google For
 
 - **JDK 21** (Eclipse Temurin recommended), with `JAVA_HOME` pointing to it
 - **Docker Desktop** (includes Docker Compose v2), with the engine running
+- **Node.js 20.19+ or 22.12+** (with npm), for the frontend
 - **Git**
 
 Maven does not need to be installed. The project uses the Maven wrapper (`mvnw.cmd`).
@@ -53,6 +54,18 @@ Then open <http://localhost:8080/api/health>. You should see:
 If the database is unreachable, the endpoint returns HTTP **503** with `{"status":"DOWN","database":"DOWN"}`.
 
 To stop the database: `docker compose down`. Your data is kept in the `pgdata` volume.
+
+### Frontend (a second terminal, with the backend running on :8080)
+
+```powershell
+cd frontend
+npm install      # only the first time, or after package.json changes
+npm run dev
+```
+
+Open <http://localhost:5173>. Log in with a demo account below, or register a new student.
+
+In dev, the Vite server forwards every `/api/...` request to `http://localhost:8080` (the proxy in `frontend/vite.config.js`). The browser sees one origin, so CORS isn't involved. `npm run build` writes a production build to `frontend/dist/`.
 
 ## Database and demo data
 
@@ -134,6 +147,13 @@ The backend reads these environment variables:
 | `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | local dev values in `backend/src/main/resources/application.yml`. These **must match** `.env.example`, because Spring Boot does not read `.env` (only Docker Compose does). |
 | `JWT_SECRET` | a dev-only secret, with a startup **WARNING**. It **must** be set in production, and it must be at least 32 bytes or the app refuses to start. |
 | `JWT_EXPIRY` | `PT2H` (2 hours) |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173`. Comma-separated browser origins allowed to call the API, no trailing slash. Not needed in dev (the Vite proxy is same-origin); set it to the deployed frontend URL in Milestone 12. |
+
+The frontend reads one build-time variable (see `frontend/.env.example`; put overrides in `frontend/.env.local`, which is git-ignored):
+
+| Variable | Default if not set |
+|---|---|
+| `VITE_API_BASE_URL` | empty: requests go to `/api` on the same origin (the Vite dev proxy). In Milestone 12 it points at the deployed backend, e.g. `https://<your-backend>.onrender.com`. |
 
 ## Docs
 
