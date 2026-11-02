@@ -33,6 +33,8 @@ import com.placementhub.student.StudentProfile;
  * Apply rules (in order): drive exists and is published, no earlier application,
  * eligible and not blocked by a placement policy (one 422 with all reasons), then insert,
  * with the DB UNIQUE constraint as the race guard.
+ * Apply and withdraw lock the student's row first (see StudentProfileRepository), and every
+ * status change goes through StatusChanges, which writes the audit row.
  */
 @Service
 public class ApplicationService {
@@ -54,12 +56,13 @@ public class ApplicationService {
 	private final PlacementPolicyRepository policyRepository;
 	private final PolicyEngine policyEngine;
 	private final ApplicationMapper applicationMapper;
+	private final StatusChanges statusChanges;
 	private final Clock clock;
 
 	public ApplicationService(CurrentStudentResolver currentStudentResolver, DriveRepository driveRepository,
 			ApplicationRepository applicationRepository, EligibilityService eligibilityService,
 			PlacementPolicyRepository policyRepository, PolicyEngine policyEngine,
-			ApplicationMapper applicationMapper, Clock clock) {
+			ApplicationMapper applicationMapper, StatusChanges statusChanges, Clock clock) {
 		this.currentStudentResolver = currentStudentResolver;
 		this.driveRepository = driveRepository;
 		this.applicationRepository = applicationRepository;
@@ -67,6 +70,7 @@ public class ApplicationService {
 		this.policyRepository = policyRepository;
 		this.policyEngine = policyEngine;
 		this.applicationMapper = applicationMapper;
+		this.statusChanges = statusChanges;
 		this.clock = clock;
 	}
 
@@ -74,7 +78,8 @@ public class ApplicationService {
 
 	@Transactional
 	public ApplicationResponse apply(ApplyRequest request) {
-		StudentProfile student = currentStudentResolver.requireProfile();
+		// Locked first: an admin selecting this student right now can't slip an offer past the policy check
+		StudentProfile student = currentStudentResolver.requireProfileForUpdate();
 
 		// DRAFT drives are unpublished: students must not learn they exist
 		Drive drive = driveRepository.findById(request.driveId())
@@ -110,6 +115,7 @@ public class ApplicationService {
 			}
 			throw e;
 		}
+		statusChanges.created(saved, StatusChangeTrigger.APPLY);
 		return applicationMapper.toResponse(saved);
 	}
 
@@ -129,10 +135,11 @@ public class ApplicationService {
 
 	@Transactional
 	public ApplicationResponse withdraw(Long applicationId) {
-		Application application = findOwnOrThrow(applicationId);
+		// Locked first: a selection elsewhere may be turning this application INELIGIBLE right now
+		StudentProfile student = currentStudentResolver.requireProfileForUpdate();
+		Application application = findOwnOrThrow(applicationId, student);
 		checkCanWithdraw(application, Instant.now(clock));
-		application.setStatus(ApplicationStatus.WITHDRAWN);
-		// TODO Milestone 7: write an audit log entry for this status change
+		statusChanges.change(application, ApplicationStatus.WITHDRAWN, null, StatusChangeTrigger.WITHDRAW);
 		applicationRepository.flush();
 		return applicationMapper.toResponse(application);
 	}
@@ -161,7 +168,7 @@ public class ApplicationService {
 
 	@Transactional(readOnly = true)
 	public ApplicationResponse getMine(Long applicationId) {
-		return applicationMapper.toResponse(findOwnOrThrow(applicationId));
+		return applicationMapper.toResponse(findOwnOrThrow(applicationId, currentStudentResolver.requireProfile()));
 	}
 
 	@Transactional(readOnly = true)
@@ -172,8 +179,7 @@ public class ApplicationService {
 	}
 
 	/** Someone else's application gives the same 404 as a missing one, so its existence is not revealed. */
-	private Application findOwnOrThrow(Long applicationId) {
-		StudentProfile student = currentStudentResolver.requireProfile();
+	private Application findOwnOrThrow(Long applicationId, StudentProfile student) {
 		return applicationRepository.findByIdAndStudentId(applicationId, student.getId())
 				.orElseThrow(() -> ResourceNotFoundException.of("Application", applicationId));
 	}

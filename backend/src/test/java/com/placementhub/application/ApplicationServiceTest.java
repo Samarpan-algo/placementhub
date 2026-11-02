@@ -6,6 +6,10 @@ import static com.placementhub.policy.PolicyFixtures.oneOffer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -17,6 +21,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -27,11 +32,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import com.placementhub.audit.AuditAction;
+import com.placementhub.audit.AuditEntityType;
+import com.placementhub.audit.AuditService;
 import com.placementhub.common.Branch;
 import com.placementhub.common.ConflictException;
 import com.placementhub.common.ResourceNotFoundException;
@@ -64,6 +73,8 @@ class ApplicationServiceTest {
 	private ApplicationRepository applicationRepository;
 	@Mock
 	private PlacementPolicyRepository policyRepository;
+	@Mock
+	private AuditService auditService;
 
 	private ApplicationService service;
 	private StudentProfile aarav;
@@ -73,7 +84,7 @@ class ApplicationServiceTest {
 	void setUp() {
 		service = new ApplicationService(currentStudentResolver, driveRepository, applicationRepository,
 				new EligibilityService(), policyRepository, PolicyFixtures.engine(), new ApplicationMapper(),
-				Clock.fixed(NOW, ZoneOffset.UTC));
+				new StatusChanges(auditService), Clock.fixed(NOW, ZoneOffset.UTC));
 
 		// Aarav: CSE, 8.70, 0 backlogs, 2027 -> eligible for the drive below
 		aarav = new StudentProfile(new User("aarav.sharma@student.placementhub.dev", "hash", Role.STUDENT),
@@ -93,7 +104,9 @@ class ApplicationServiceTest {
 		drive.setBranches(Set.of(Branch.CSE, Branch.IT, Branch.ECE));
 		drive.setStatus(DriveStatus.OPEN);
 
-		when(currentStudentResolver.requireProfile()).thenReturn(aarav);
+		// apply and withdraw use the locking lookup, reads the plain one; each test uses only one of them
+		lenient().when(currentStudentResolver.requireProfile()).thenReturn(aarav);
+		lenient().when(currentStudentResolver.requireProfileForUpdate()).thenReturn(aarav);
 	}
 
 	// =====================================================================
@@ -115,6 +128,24 @@ class ApplicationServiceTest {
 			assertThat(response.driveId()).isEqualTo(DRIVE_ID);
 			assertThat(response.companyName()).isEqualTo("Nimbus Systems");
 			verify(applicationRepository).saveAndFlush(any(Application.class));
+		}
+
+		@Test
+		void locksTheStudentRowAndAuditsTheNewApplication() {
+			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
+			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, STUDENT_ID)).thenReturn(Optional.empty());
+			when(applicationRepository.saveAndFlush(any(Application.class))).thenAnswer(inv -> {
+				Application saved = inv.getArgument(0);
+				ReflectionTestUtils.setField(saved, "id", APPLICATION_ID);
+				return saved;
+			});
+
+			service.apply(new ApplyRequest(DRIVE_ID));
+
+			verify(currentStudentResolver).requireProfileForUpdate();
+			verify(currentStudentResolver, never()).requireProfile();
+			Map<String, Object> newValue = captureAudit(null);
+			assertThat(newValue).containsEntry("status", "APPLIED").containsEntry("trigger", "APPLY");
 		}
 
 		@Test
@@ -144,7 +175,7 @@ class ApplicationServiceTest {
 			StudentProfile karan = new StudentProfile(new User("k@student.placementhub.dev", "h", Role.STUDENT),
 					"Karan Mehta", "23ME031", Branch.ME, (short) 2027, new BigDecimal("6.20"), (short) 2);
 			ReflectionTestUtils.setField(karan, "id", 7L);
-			when(currentStudentResolver.requireProfile()).thenReturn(karan);
+			when(currentStudentResolver.requireProfileForUpdate()).thenReturn(karan);
 			when(driveRepository.findById(DRIVE_ID)).thenReturn(Optional.of(drive));
 			when(applicationRepository.findByDriveIdAndStudentId(DRIVE_ID, 7L)).thenReturn(Optional.empty());
 
@@ -321,6 +352,31 @@ class ApplicationServiceTest {
 		}
 
 		@Test
+		void locksTheStudentRowAndAuditsOldAndNewStatus() {
+			when(applicationRepository.findByIdAndStudentId(APPLICATION_ID, STUDENT_ID))
+					.thenReturn(Optional.of(application(ApplicationStatus.SHORTLISTED)));
+
+			service.withdraw(APPLICATION_ID);
+
+			verify(currentStudentResolver).requireProfileForUpdate();
+			ArgumentCaptor<Map<String, Object>> oldValue = mapCaptor();
+			ArgumentCaptor<Map<String, Object>> newValue = mapCaptor();
+			verify(auditService).record(eq(AuditEntityType.APPLICATION), eq(APPLICATION_ID),
+					eq(AuditAction.STATUS_CHANGED), oldValue.capture(), newValue.capture());
+			assertThat(oldValue.getValue()).containsEntry("status", "SHORTLISTED");
+			assertThat(newValue.getValue()).containsEntry("status", "WITHDRAWN").containsEntry("trigger", "WITHDRAW");
+		}
+
+		@Test
+		void blockedWithdrawalWritesNoAudit() {
+			when(applicationRepository.findByIdAndStudentId(APPLICATION_ID, STUDENT_ID))
+					.thenReturn(Optional.of(application(ApplicationStatus.REJECTED)));
+
+			assertThatThrownBy(() -> service.withdraw(APPLICATION_ID)).isInstanceOf(ConflictException.class);
+			verify(auditService, never()).record(any(), anyLong(), any(), any(), any());
+		}
+
+		@Test
 		void someoneElsesApplicationIs404NotForbidden() {
 			// The query filters by owner, so another student's application is simply not found
 			when(applicationRepository.findByIdAndStudentId(APPLICATION_ID, STUDENT_ID)).thenReturn(Optional.empty());
@@ -411,6 +467,20 @@ class ApplicationServiceTest {
 	// ---------------------------------------------------------------------
 	// helpers
 	// ---------------------------------------------------------------------
+
+	/** The new value of the single audit row written; oldValue must be the expected old value (null on apply). */
+	private Map<String, Object> captureAudit(Map<String, Object> expectedOldValue) {
+		ArgumentCaptor<Map<String, Object>> newValue = mapCaptor();
+		verify(auditService).record(eq(AuditEntityType.APPLICATION), eq(APPLICATION_ID),
+				eq(AuditAction.STATUS_CHANGED), expectedOldValue == null ? isNull() : eq(expectedOldValue),
+				newValue.capture());
+		return newValue.getValue();
+	}
+
+	@SuppressWarnings({ "unchecked", "rawtypes" })
+	private static ArgumentCaptor<Map<String, Object>> mapCaptor() {
+		return (ArgumentCaptor) ArgumentCaptor.forClass(Map.class);
+	}
 
 	private Application application(ApplicationStatus status) {
 		Application application = new Application(drive, aarav);
