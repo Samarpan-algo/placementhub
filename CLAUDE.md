@@ -152,4 +152,4 @@ M5 done: stateless JWT (Spring Resource Server, HS256, 2h, JWT_SECRET + dev-only
 M6 done: Strategy-pattern policy engine (offer = SELECTED + FULL_TIME) in apply/browse, admin /api/policies (400s, ONE/DREAM 409 under row lock), 228 tests, Postman passed.
 M7 done: audit log (results, policies, criteria edits), rounds/bulk results/selection with row locks, applicants list + safe CSV, criteria-change re-evaluation, /api/audit, /api/stats; 419 tests, Postman 239/239 (decisions #46-61).
 M8 done: Vite + React (JS) frontend, dev proxy + backend CORS (CORS_ALLOWED_ORIGINS), axios client (Bearer, global 401 → /login),
-AuthContext (JWT payload decode, localStorage), ProtectedRoute by role, login/register/placeholder homes, validation details[]; 425 tests (decisions #62-66).
+AuthContext (JWT payload decode, localStorage), ProtectedRoute by role, login/register/placeholder homes, validation details[], register review step, roll no 5-20 letters/digits; 440 tests, Postman 239/239 (decisions #62-66).
