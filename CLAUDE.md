@@ -139,7 +139,7 @@ Each milestone lists what "done" means.
 
 ## Current status
 <!-- I'll update this line as I go -->
-Milestone: 7 (Session A done, Session B next). M1 done: Docker Postgres 17, Spring Boot 4.1.2 skeleton,
+Milestone: 7 done (Sessions A and B). Milestone 8 (frontend auth) next. M1 done: Docker Postgres 17, Spring Boot 4.1.2 skeleton,
 /api/health with DB check, README v0. M2 done: Flyway V1 schema (10 tables, CHECKs,
 FK indexes, INELIGIBLE + status_reason) and V2 demo seed (1 admin, 6 students, 3 companies, 5 drives, policies).
 M3 done: entities (ddl-auto validate), global error handler, PageResponse, Companies + Drives CRUD
@@ -153,5 +153,8 @@ M6 done: Strategy-pattern policy engine (offer = SELECTED + FULL_TIME) in apply/
 M7 Session A done: audit log (same tx, StatusChanges + trigger), rounds (contiguous, fixed numbers), bulk results (all-or-nothing,
 upsert, derived status), selection (final round, policy re-check, pending -> INELIGIBLE, fixes #45), student/drive row locks,
 complete rejects pending, round tracking for students, 311 tests, Postman 172/172 (decisions #46-52).
-M7 Session B next: V3 migration (ROUND_RESULT/RESULT_CHANGED, POLICY/POLICY_CHANGED), applicants list/filter, CSV export,
-criteria-change re-evaluation, audit log view, stats.
+M7 Session B done: V3 migration (ROUND_RESULT/RESULT_CHANGED, POLICY/POLICY_CHANGED, status_reason 1000, full reason in audit),
+result and policy audit (no-op = no row), applicants list/filter (no N+1, statement-counted), CSV export (formula escaping, every cell),
+criteria-change re-evaluation (one-way, eligibility only, audited changed fields, count in PUT), jobType only while DRAFT,
+apply takes FOR SHARE on the drive, GET /api/audit, GET /api/stats (aggregate SQL, best offer per student), rollback DB tests
+on the dev Postgres (TODO M11: separate test DB), 419 tests, Postman 239/239 (decisions #53-61).
