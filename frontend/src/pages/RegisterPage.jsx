@@ -30,6 +30,7 @@ const EMPTY_FORM = {
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_PATTERN = /^\+?[0-9]{10,14}$/; // same regex as RegisterRequest.phone
+const ROLL_NO_PATTERN = /^[A-Z0-9]{5,20}$/; // same regex as RegisterRequest.rollNo (after uppercasing)
 const CGPA_PATTERN = /^\d{1,2}(\.\d{1,2})?$/; // at most 2 decimals, like @Digits(integer = 2, fraction = 2)
 
 // Passwords are kept exactly as typed: spaces can be part of a password, and the backend doesn't trim them
@@ -71,7 +72,7 @@ function validate(form) {
   else if (form.fullName.length > 100) errors.fullName = 'At most 100 characters';
 
   if (!form.rollNo) errors.rollNo = 'Roll number is required';
-  else if (form.rollNo.length > 30) errors.rollNo = 'At most 30 characters';
+  else if (!ROLL_NO_PATTERN.test(form.rollNo)) errors.rollNo = '5 to 20 letters or digits, e.g. 23CSE099';
 
   if (!form.branch) errors.branch = 'Choose your branch';
 
@@ -105,7 +106,8 @@ export default function RegisterPage() {
   // We build a NEW object ({...form}) instead of changing the old one: React re-renders when state is replaced.
   function handleChange(event) {
     const { name, value } = event.target;
-    setForm({ ...form, [name]: value });
+    // Roll numbers are stored uppercase (the backend uppercases too), so show them that way while typing
+    setForm({ ...form, [name]: name === 'rollNo' ? value.toUpperCase() : value });
   }
 
   async function handleSubmit(event) {
@@ -183,7 +185,7 @@ export default function RegisterPage() {
           </Field>
 
           <div className="form-row">
-            <Field id="rollNo" label="Roll number" error={fieldErrors.rollNo}>
+            <Field id="rollNo" label="Roll number" error={fieldErrors.rollNo} hint="Letters and digits, e.g. 23CSE099">
               <input id="rollNo" name="rollNo" value={form.rollNo} onChange={handleChange} />
             </Field>
             <Field id="branch" label="Branch" error={fieldErrors.branch}>

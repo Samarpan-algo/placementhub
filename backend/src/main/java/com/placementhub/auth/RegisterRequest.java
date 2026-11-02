@@ -32,7 +32,8 @@ public record RegisterRequest(
 		@NotBlank @Size(max = 100)
 		String fullName,
 
-		@NotBlank @Size(max = 30)
+		// Checked after the constructor below has trimmed and uppercased it, so "23cse099" is accepted as 23CSE099
+		@NotBlank @Pattern(regexp = "^[A-Z0-9]{5,20}$", message = "must be 5 to 20 letters or digits, e.g. 23CSE099")
 		String rollNo,
 
 		@NotNull

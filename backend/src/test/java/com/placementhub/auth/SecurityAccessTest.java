@@ -263,6 +263,18 @@ class SecurityAccessTest {
 	}
 
 	@Test
+	void registerWithTooShortRollNoIs400() throws Exception {
+		mvc.perform(request(HttpMethod.POST, "/api/auth/register")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"email":"new@student.placementhub.dev","password":"Secret@123","fullName":"New Student",
+						 "rollNo":"2","branch":"CSE","graduationYear":2027,"cgpa":8.0,"activeBacklogs":0}
+						"""))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.details[0]").value("rollNo: must be 5 to 20 letters or digits, e.g. 23CSE099"));
+	}
+
+	@Test
 	void registerWithSeveralInvalidFieldsListsEachInDetailsSortedByField() throws Exception {
 		mvc.perform(request(HttpMethod.POST, "/api/auth/register")
 				.contentType(MediaType.APPLICATION_JSON)
