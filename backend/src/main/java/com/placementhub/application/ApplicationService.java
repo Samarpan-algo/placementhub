@@ -25,6 +25,8 @@ import com.placementhub.policy.PlacementPolicy;
 import com.placementhub.policy.PlacementPolicyRepository;
 import com.placementhub.policy.PolicyEngine;
 import com.placementhub.policy.PolicyEvaluation;
+import com.placementhub.round.DriveRoundRepository;
+import com.placementhub.round.RoundResultRepository;
 import com.placementhub.student.CurrentStudentResolver;
 import com.placementhub.student.StudentProfile;
 
@@ -57,12 +59,15 @@ public class ApplicationService {
 	private final PolicyEngine policyEngine;
 	private final ApplicationMapper applicationMapper;
 	private final StatusChanges statusChanges;
+	private final DriveRoundRepository roundRepository;
+	private final RoundResultRepository resultRepository;
 	private final Clock clock;
 
 	public ApplicationService(CurrentStudentResolver currentStudentResolver, DriveRepository driveRepository,
 			ApplicationRepository applicationRepository, EligibilityService eligibilityService,
 			PlacementPolicyRepository policyRepository, PolicyEngine policyEngine,
-			ApplicationMapper applicationMapper, StatusChanges statusChanges, Clock clock) {
+			ApplicationMapper applicationMapper, StatusChanges statusChanges, DriveRoundRepository roundRepository,
+			RoundResultRepository resultRepository, Clock clock) {
 		this.currentStudentResolver = currentStudentResolver;
 		this.driveRepository = driveRepository;
 		this.applicationRepository = applicationRepository;
@@ -71,6 +76,8 @@ public class ApplicationService {
 		this.policyEngine = policyEngine;
 		this.applicationMapper = applicationMapper;
 		this.statusChanges = statusChanges;
+		this.roundRepository = roundRepository;
+		this.resultRepository = resultRepository;
 		this.clock = clock;
 	}
 
@@ -166,9 +173,13 @@ public class ApplicationService {
 
 	// ---------- read ----------
 
+	/** Round-by-round tracking: every round of the drive, with this student's result and remarks (+2 queries). */
 	@Transactional(readOnly = true)
-	public ApplicationResponse getMine(Long applicationId) {
-		return applicationMapper.toResponse(findOwnOrThrow(applicationId, currentStudentResolver.requireProfile()));
+	public ApplicationDetailResponse getMine(Long applicationId) {
+		Application application = findOwnOrThrow(applicationId, currentStudentResolver.requireProfile());
+		return applicationMapper.toDetailResponse(application,
+				roundRepository.findByDriveIdOrderByRoundNoAsc(application.getDrive().getId()),
+				resultRepository.findByApplicationId(application.getId()));
 	}
 
 	@Transactional(readOnly = true)

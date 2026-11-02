@@ -52,6 +52,12 @@ import com.placementhub.drive.DriveStatus;
 import com.placementhub.drive.JobType;
 import com.placementhub.policy.PlacementPolicyRepository;
 import com.placementhub.policy.PolicyFixtures;
+import com.placementhub.round.DriveRound;
+import com.placementhub.round.DriveRoundRepository;
+import com.placementhub.round.RoundFixtures;
+import com.placementhub.round.RoundOutcome;
+import com.placementhub.round.RoundResult;
+import com.placementhub.round.RoundResultRepository;
 import com.placementhub.student.CurrentStudentResolver;
 import com.placementhub.student.StudentProfile;
 import com.placementhub.user.Role;
@@ -75,6 +81,10 @@ class ApplicationServiceTest {
 	private PlacementPolicyRepository policyRepository;
 	@Mock
 	private AuditService auditService;
+	@Mock
+	private DriveRoundRepository roundRepository;
+	@Mock
+	private RoundResultRepository resultRepository;
 
 	private ApplicationService service;
 	private StudentProfile aarav;
@@ -84,7 +94,7 @@ class ApplicationServiceTest {
 	void setUp() {
 		service = new ApplicationService(currentStudentResolver, driveRepository, applicationRepository,
 				new EligibilityService(), policyRepository, PolicyFixtures.engine(), new ApplicationMapper(),
-				new StatusChanges(auditService), Clock.fixed(NOW, ZoneOffset.UTC));
+				new StatusChanges(auditService), roundRepository, resultRepository, Clock.fixed(NOW, ZoneOffset.UTC));
 
 		// Aarav: CSE, 8.70, 0 backlogs, 2027 -> eligible for the drive below
 		aarav = new StudentProfile(new User("aarav.sharma@student.placementhub.dev", "hash", Role.STUDENT),
@@ -462,6 +472,42 @@ class ApplicationServiceTest {
 		assertThatThrownBy(() -> service.getMine(APPLICATION_ID))
 				.isInstanceOf(ResourceNotFoundException.class)
 				.hasMessage("Application with id 50 not found");
+	}
+
+	@Test
+	void getMineTracksEveryRoundWithTheStudentsResultAndRemarks() {
+		drive.setStatus(DriveStatus.CLOSED);
+		Application application = application(ApplicationStatus.REJECTED);
+		application.setStatusReason("Not cleared in Round 2: Technical");
+		DriveRound round1 = RoundFixtures.round(101L, drive, 1, "Aptitude");
+		DriveRound round2 = RoundFixtures.round(102L, drive, 2, "Technical");
+		DriveRound round3 = RoundFixtures.round(103L, drive, 3, "HR");
+		RoundResult cleared = RoundFixtures.result(round1, application, RoundOutcome.CLEARED);
+		cleared.setRemarks("Good score");
+		RoundResult failed = RoundFixtures.result(round2, application, RoundOutcome.NOT_CLEARED);
+		when(applicationRepository.findByIdAndStudentId(APPLICATION_ID, STUDENT_ID))
+				.thenReturn(Optional.of(application));
+		when(roundRepository.findByDriveIdOrderByRoundNoAsc(DRIVE_ID)).thenReturn(List.of(round1, round2, round3));
+		when(resultRepository.findByApplicationId(APPLICATION_ID)).thenReturn(List.of(failed, cleared));
+
+		ApplicationDetailResponse response = service.getMine(APPLICATION_ID);
+
+		assertThat(response.status()).isEqualTo(ApplicationStatus.REJECTED);
+		assertThat(response.statusReason()).isEqualTo("Not cleared in Round 2: Technical");
+		assertThat(response.rounds()).containsExactly(
+				new ApplicationDetailResponse.Round(1, "Aptitude", null, RoundOutcome.CLEARED, "Good score"),
+				new ApplicationDetailResponse.Round(2, "Technical", null, RoundOutcome.NOT_CLEARED, null),
+				new ApplicationDetailResponse.Round(3, "HR", null, null, null)); // no result yet
+	}
+
+	@Test
+	void getMineWithoutRoundsHasAnEmptyList() {
+		when(applicationRepository.findByIdAndStudentId(APPLICATION_ID, STUDENT_ID))
+				.thenReturn(Optional.of(application(ApplicationStatus.APPLIED)));
+		when(roundRepository.findByDriveIdOrderByRoundNoAsc(DRIVE_ID)).thenReturn(List.of());
+		when(resultRepository.findByApplicationId(APPLICATION_ID)).thenReturn(List.of());
+
+		assertThat(service.getMine(APPLICATION_ID).rounds()).isEmpty();
 	}
 
 	// ---------------------------------------------------------------------

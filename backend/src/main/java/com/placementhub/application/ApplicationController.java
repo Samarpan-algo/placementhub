@@ -46,7 +46,7 @@ public class ApplicationController {
 	}
 
 	@GetMapping("/{id}")
-	public ApplicationResponse getMine(@PathVariable Long id) {
+	public ApplicationDetailResponse getMine(@PathVariable Long id) {
 		return applicationService.getMine(id);
 	}
 
