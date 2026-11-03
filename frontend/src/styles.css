@@ -656,3 +656,19 @@ a.btn {
   gap: var(--space-2);
   cursor: pointer;
 }
+
+/* ---------- applicants list ---------- */
+
+/* an input with its button beside it (the minimum CGPA filter) */
+.inline-input {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.inline-input input {
+  width: 7rem;
+}
+
+.nowrap {
+  white-space: nowrap;
+}

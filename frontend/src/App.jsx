@@ -7,6 +7,7 @@ import AppLayout from './components/AppLayout.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
 import AdminHomePage from './pages/admin/AdminHomePage.jsx';
+import ApplicantsPage from './pages/admin/ApplicantsPage.jsx';
 import CompaniesPage from './pages/admin/CompaniesPage.jsx';
 import AdminDriveDetailPage from './pages/admin/DriveDetailPage.jsx';
 import DriveFormPage from './pages/admin/DriveFormPage.jsx';
@@ -81,6 +82,7 @@ export default function App() {
         <Route path="drives/new" element={<DriveFormPage />} />
         <Route path="drives/:id" element={<AdminDriveDetailPage />} />
         <Route path="drives/:id/edit" element={<DriveFormPage />} />
+        <Route path="drives/:id/applicants" element={<ApplicantsPage />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Route>
 
