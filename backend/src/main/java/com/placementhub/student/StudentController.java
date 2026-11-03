@@ -3,6 +3,7 @@ package com.placementhub.student;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -42,6 +43,12 @@ public class StudentController {
 			@RequestParam(defaultValue = "false") boolean eligibleOnly,
 			@PageableDefault(size = 20) Pageable pageable) {
 		return studentDriveService.browse(eligibleOnly, pageable);
+	}
+
+	/** One drive with the same fields as a browse item: OPEN drives, or drives the student applied to (else 404). */
+	@GetMapping("/drives/{id}")
+	public StudentDriveResponse getDrive(@PathVariable Long id) {
+		return studentDriveService.getOne(id);
 	}
 
 }

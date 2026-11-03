@@ -1202,3 +1202,248 @@ A 401 from `/api/auth/login` means a wrong email or password, so the login page 
 - Return a map of field → message (a second error shape).
 
 **Why:** additive, so the existing tests and Postman checks on `message` still pass, and every error the UI shows comes through one shape. The register form checks the same rules first, so a student normally sees errors under each field before anything is sent. `details[]` covers what the client can't check (it's also the safety net if the two drift apart).
+
+---
+
+## 67. Student drive detail: visible if OPEN, or if the student applied to it
+**Milestone:** 9 · **Date:** 2026-11-02
+
+**Decision:** `GET /api/students/me/drives/{id}` returns the same shape as one browse item (`drive`, `eligible`, `reasons`, `applicationStatus`), built by the same code as browse. The drive is returned if it is OPEN, **or** if the student has an application to it in any status. Everything else (a DRAFT drive, a CLOSED/COMPLETED drive they never applied to, a missing id) is the same 404 `"Drive with id N not found"`. A non-OPEN drive is never eligible, because the EligibilityService "not open" rule adds that reason, so Apply never appears for it. Browse items and the detail also carry `applicationId` (null if not applied), so the drive page can link to the application and offer Withdraw through the same `WithdrawButton` as My applications.
+
+**Alternatives:**
+- Load the browse list in the frontend and pick the drive out of it (no new endpoint, but it's wasteful, breaks past 100 drives, and has no data for closed drives).
+- Only OPEN drives (then "View drive" links from My applications break as soon as a drive closes).
+- Any drive except DRAFT (shows students drives they never had anything to do with).
+
+**Why:** a student needs the drive behind each of their applications, even after it closes, and nothing else. One 404 for "missing" and "not yours to see" doesn't reveal which ids exist (the same idea as the application 404 in decision #29). Drives never go back to DRAFT and apply needs OPEN, so a DRAFT drive can't have an application.
+
+---
+
+## 68. A "200 that isn't our JSON" is an error (the blank-page bug)
+**Milestone:** 9 · **Date:** 2026-11-02
+
+**Decision:** `useApi` treats a response whose body isn't a JSON object or array as an error ("Unexpected answer from the server… restart npm run dev so the /api proxy is active"). `toApiError` gives the same message for a 404 that has no error JSON. Pages show their fields only once data has loaded; a failed load shows the error with "Try again", never empty values.
+
+**Real cause of the bug:** during a branch switch the Vite dev server lost its `/api` proxy, so Vite answered the request itself (a 404, not the backend). The old home page didn't handle that case, and the student saw an empty page instead of an error.
+
+**Alternatives:**
+- Check `Content-Type` in the global axios interceptor (would also hit the CSV download and 204 responses that admin pages will need).
+- Fix only the home page (the same thing would happen on every new page).
+
+**Why:** one check, in the one hook every page uses to load data, covers both ways the dev server can answer instead of the backend: its own 404, or its `index.html` with 200.
+
+---
+
+## 69. `driveStatus` on application responses; the frontend mirrors the withdraw rule only to show the button
+**Milestone:** 9 · **Date:** 2026-11-02
+
+**Decision:** `ApplicationResponse` and `ApplicationDetailResponse` include `driveStatus`. The frontend shows Withdraw only when the status is APPLIED/SHORTLISTED, `driveStatus` is OPEN and the deadline is still in the future (`utils/applications.js`), and asks for confirmation that withdrawal is final. The backend still checks all of it, and a 409 (e.g. the deadline passed while the page was open) is shown as the error.
+
+**Alternatives:** check only status and deadline, and let the 409 handle closed drives (a button that always fails for some rows).
+
+**Why:** one extra field, and the UI never offers an action it knows will fail. The frontend copy of the rule is for display only, so if the two ever drift apart, the backend's answer wins.
+
+---
+
+## 70. Dashboard counts come from the first 100 applications (known limitation)
+**Milestone:** 9 · **Date:** 2026-11-02
+
+**Decision:** the student dashboard loads `GET /api/students/me/applications?size=100` (the backend's maximum page size) and counts statuses in the browser. If a student had more than 100 applications, the page says the counts cover only the 100 most recent.
+
+**Alternatives:** a `GET /api/students/me/applications/counts` endpoint with a `GROUP BY status` query.
+
+**Why:** a student applies to tens of drives per season at most, so one request already covers everything, with no new backend code. A counts endpoint is the fix if that ever changes.
+
+---
+
+## 71. List page number and filters live in the URL
+**Milestone:** 9 · **Date:** 2026-11-02
+
+**Decision:** the drives and applications lists read `?page=` (counted from 1 in the URL, from 0 for the API) and `?eligibleOnly=true` from the URL with `useSearchParams`, and change the URL instead of keeping that state in the component. Toggling "Eligible only" goes back to page 1.
+
+**Alternatives:** `useState` for the page and the toggle.
+
+**Why:** Back, Refresh and coming back from a drive detail page all keep your place, and `useApi` reloads automatically because the URL it fetches changes.
+
+---
+
+## 72. The drive date check compares days in IST, not UTC
+**Milestone:** 9 · **Date:** 2026-11-02
+
+**Decision:** `DriveService.checkDates` converts the registration deadline to an IST date (the shared `AppTime.IST` zone) before checking that `driveDate` is not earlier. Before, a deadline of 3 Dec 02:00 IST counted as 2 Dec (its UTC day), so a 2 Dec drive date was wrongly accepted.
+
+---
+
+## 73. 400 field errors go under their fields; anything unmatched stays in the top alert
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** `fieldErrorsFrom(apiError, fields)` splits a 400's `details[]` ("minCgpa: must be ...") between the form's fields. `branches[0]: ...` counts as `branches`. Every line that matches no field stays in the top `ErrorAlert`, so no message is ever dropped. Other statuses (409, 404, ...) are left unchanged and shown on top.
+
+**Alternatives:** show every detail line on top only (simple, but you have to find the field yourself), or show only the matched lines (unknown fields would be silently lost).
+
+**Why:** the error appears next to the input that needs fixing, and a backend rule the form doesn't know about is still visible.
+
+---
+
+## 74. The admin types the registration deadline in IST, whatever the laptop's timezone
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** `<input type="datetime-local">` holds a wall-clock time with no zone. The form treats it as IST: on save it appends India's fixed offset (`:00+05:30`, no daylight saving) and sends the UTC instant; on edit it shows the stored instant in `Asia/Kolkata` (`istInputToIso` / `isoToIstInput` in `utils/format.js`). `driveDate` is a plain date and needs no conversion. The form's "drive date not before the deadline" check compares the IST day, like the backend (decision 72).
+
+**Alternatives:** `new Date(value)`, which reads the input in the browser's own timezone.
+
+**Why:** the college is in India and students see IST everywhere. An admin whose laptop is set to another timezone would otherwise save the wrong deadline without noticing.
+
+---
+
+## 75. Admin status buttons mirror the backend's transitions, and the drive is always refetched
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** `NEXT_STATUS_ACTION` (`utils/drives.js`) has one entry per status, matching `DriveService.ALLOWED_TRANSITIONS`: DRAFT → Open, OPEN → Close, CLOSED → Mark completed (with a warning that pending applications are rejected); COMPLETED has none. Every change goes through a confirm dialog. After a status action (success or failure) or a save, the page loads the drive again from the backend instead of patching its local copy.
+
+**Alternatives:** an "allowed actions" list sent by the backend; updating local state from the response.
+
+**Why:** the rules are small and fixed, so a mirror is enough to choose which button to show; the backend still checks and answers 409. Refetching means the page always shows what the database really holds, even after a 409 because the drive changed meanwhile.
+
+---
+
+## 76. CSV export is downloaded with axios as a blob, not with a plain link
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** `downloadFile()` (`api/download.js`) calls the export endpoint through the axios client (so the Bearer token is sent), with `responseType: 'blob'`. On success it saves the bytes through a temporary object URL and a hidden `<a download>`, using the filename from `Content-Disposition` (exposed by CORS), then revokes the URL. On failure the error body is also a Blob, so it is read as text and parsed as our error JSON before `toApiError`. A 200 that isn't `text/csv` is treated as an error (decision 68). The export uses the same filters as the list on screen.
+
+**Alternatives:** `<a href="/api/.../export">` (can't send the Authorization header, so it would be a 401); a token in the query string (it would end up in server logs and browser history).
+
+**Why:** the token stays in a header, and backend errors (404, 400) are shown as messages instead of being saved as a file.
+
+---
+
+## 77. Known limitation: company dropdowns list at most 100 companies
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** the "New drive" company select and the Drives page company filter load `GET /api/companies?size=100`, the backend's `max-page-size`. If there are more, the New drive form says only the first 100 (A–Z) are listed.
+
+**Alternatives:** a search-as-you-type company picker, or an unpaged `GET /api/companies/options` endpoint returning only ids and names.
+
+**Why:** one college works with tens of companies per season, so 100 covers v1 with no backend change.
+
+---
+
+## 78. Known limitation (fix in Milestone 11): "drive date before the deadline" returns 409, not 400
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** `DriveService.checkDates` throws `ConflictException`, so this input error is a 409. The frontend checks the same rule first, so admins rarely see it. Not changed in Session B (frontend only).
+
+**Alternatives:** a 400, with `driveDate: ...` in `details[]` so it appears under the field.
+
+**Why:** it's invalid input, not a conflict with the current state, so 400 is the right status. Changing it touches the tests and the Postman collection, which belongs to the Milestone 11 testing pass.
+
+---
+
+## 79. Known limitation (fix in Milestone 11): Postman runs write to the dev database
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** the Postman collection runs against the normal dev database, so every run leaves test companies, drives, students, applications and audit rows behind (one run on 2026-11-04 added 2 companies, 5 drives, 7 users and 8 applications; one dev DB had reached 54 drives).
+
+**Alternatives:** a separate test database (its own docker-compose service or database, with a Spring profile), or cleanup requests at the end of the collection.
+
+**Why:** it's noise in dev data, not a correctness problem. A separate test DB is the cleaner fix and belongs to the Milestone 11 testing pass.
+
+---
+
+## 80. Known limitation: the results sheet works from each student's latest result only
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** There is no endpoint to read one round's results, so the sheet uses `progress.latestRound` from the applicants list. A student with a result in a later round appears under "Not on this sheet" and can't be edited there. Their earlier remarks can't be viewed or edited. The sheet sends only the rows that changed.
+
+**Alternatives:** A new `GET .../rounds/{roundId}/results` endpoint (a backend change, the clean v2 fix); or sending every row each time.
+
+**Why:** The latest result is enough to know where a student stands: the backend won't record a fail while a later result exists, or round N without CLEARED in round N-1, so all earlier rounds were cleared. Read-only rows stop a blank remark overwriting one the sheet can't see. Sending only changes makes the confirm count honest, and one stale row can't fail a save for no reason.
+
+---
+
+## 81. Known limitation: selection has no policy preview
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** The page ticks only students who pass the status and final-round rules. A placement policy block appears only after confirming, as a 409 that names each student, and nothing is selected.
+
+**Alternatives:** A preview endpoint that runs the policy engine for each applicant; or copying the policy rules into the frontend.
+
+**Why:** Rules belong in one place, the backend. A copy in React would drift. Selection is all or nothing, so a late 409 changes no data; it costs one extra click.
+
+---
+
+## 82. Known limitation: the audit log shows IDs, not names
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** Rows show "Application #12" or "Drive #3", plus the changed fields. The filters are the backend's only: entity type, entity ID and a date range, with no action or actor filter.
+
+**Alternatives:** Add names to the audit JSON or join them in the audit response (a backend change).
+
+**Why:** The log records exactly what changed and stays correct even if a name changes later. Readable names are a good v2 addition, not worth a backend change in this frontend-only session.
+
+---
+
+## 83. Known limitation: the policies page shows when, not who
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** `PolicyResponse` has `updatedAt` but not who made the change, so the page shows only the time. The audit log has both.
+
+**Alternatives:** Add `updatedBy` to the response (a backend change).
+
+**Why:** The answer is already one click away in the audit log, so it doesn't justify a backend change now.
+
+---
+
+## 84. A results sheet loads every applicant, page by page
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** `useApi(url, { allPages: true })` calls `getAllPages`, which requests 100 rows at a time (the API's maximum) until it has them all. The results and selection pages use it.
+
+**Alternatives:** A paginated sheet with drafts kept across pages; or asking for a larger page size (a backend change).
+
+**Why:** Who can be on a sheet is worked out per row, so a page could look empty while the next one has students. One screen and one Save is clearer. A college drive has hundreds of applicants at most, so a few requests are fine.
+
+---
+
+## 85. Audit log dates are whole IST days
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** The filters are `<input type="date">` and the URL keeps plain days. `from` becomes that day's 00:00 IST. `to` becomes the next day's 00:00 IST, because the backend's `to` is exclusive. So the same day in both means that one whole day.
+
+**Alternatives:** Exact date-times with `datetime-local`; or sending plain days and converting on the backend (a backend change).
+
+**Why:** An admin asks "what happened on 4 Nov?", which means an Indian day, not a UTC one. India has no daylight saving, so adding 24 hours is always right, and the conversion reuses the existing IST helper.
+
+---
+
+## 86. Per-row errors stay in the top alert, with names added
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** Batch 400/409 lines say "Application 12 ...". `withStudentNames` adds the name and roll number to each line it can match. A line it can't match stays exactly as the backend wrote it.
+
+**Alternatives:** Show each message under its row; or look up the student by parsing more of the text.
+
+**Why:** After a failed save the page refetches, and a row can leave the sheet, which would also remove its message. The top alert never loses a line.
+
+---
+
+## 87. A shared useFormErrors hook; Policies Save stays enabled
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** Editing a field clears that field's error through one hook, used by every form with field errors. The generic "fix the highlighted fields" alert goes when none are left; a backend 409 stays until the next submit. Policies Save is no longer disabled when nothing changed: it says "No changes to save" instead. The results sheet's "choose a result" alert is worked out on every render, so a name leaves as soon as that row is fixed.
+
+**Alternatives:** Clear errors only in the Policies form; or clear all errors on any edit.
+
+**Why:** Found in the browser test: an invalid threshold, then the saved value again, left the error showing with Save disabled, so the form was stuck until a refresh. The pattern was in every form, though only Policies and the results sheet could actually get stuck. A 409 stays because it isn't about one field, and the admin may need it while fixing several rows.
+
+---
+
+## 88. Edit round is included, and adding a round asks first
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** The rounds page can edit a round's name and time, which you can change back, so that has no dialog. Adding a round has a confirm dialog. The round number is never typed: the frontend sends the next number.
+
+**Alternatives:** List and add only, as first specified; or a typed round number.
+
+**Why:** Rounds can't be deleted, so without edit a typo would be permanent. A new round also becomes the final one, which changes who can be selected, so that is worth a confirmation. The backend accepts only the next number, so typing it could only cause errors.

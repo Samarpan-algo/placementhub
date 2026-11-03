@@ -1,16 +1,14 @@
 package com.placementhub.common;
 
 import java.time.Instant;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
 /** Formats instants for messages students read: Indian time, e.g. "11 Nov 2026, 3:30 PM IST". Storage stays UTC. */
 public final class StudentTimeFormat {
 
-	private static final ZoneId STUDENT_ZONE = ZoneId.of("Asia/Kolkata");
 	private static final DateTimeFormatter FORMAT =
-			DateTimeFormatter.ofPattern("d MMM yyyy, h:mm a 'IST'", Locale.ENGLISH).withZone(STUDENT_ZONE);
+			DateTimeFormatter.ofPattern("d MMM yyyy, h:mm a 'IST'", Locale.ENGLISH).withZone(AppTime.IST);
 
 	private StudentTimeFormat() {
 	}

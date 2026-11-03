@@ -140,6 +140,7 @@ class SecurityAccessTest {
 				new Endpoint(HttpMethod.PUT, "/api/policies/DREAM_OFFER", Role.TPO_ADMIN),
 				new Endpoint(HttpMethod.GET, "/api/students/me", Role.STUDENT),
 				new Endpoint(HttpMethod.GET, "/api/students/me/drives", Role.STUDENT),
+				new Endpoint(HttpMethod.GET, "/api/students/me/drives/1", Role.STUDENT),
 				new Endpoint(HttpMethod.GET, "/api/students/me/applications", Role.STUDENT),
 				new Endpoint(HttpMethod.GET, "/api/students/me/applications/1", Role.STUDENT),
 				new Endpoint(HttpMethod.POST, "/api/students/me/applications/1/withdraw", Role.STUDENT));

@@ -1,6 +1,6 @@
 # PlacementHub
 
-> Status: backend v1 features done (Milestones 1–7). Frontend started (Milestone 8): login, student registration, role-based routing. Student and admin pages next (Milestone 9).
+> Status: backend v1 features done (Milestones 1–7). Frontend (Milestones 8–9): login, student registration, role-based routing, and all student pages (dashboard, drives with eligibility and apply, my applications with withdraw and round tracking, profile), and all admin pages: companies, drives (create/edit, open/close/complete), applicants with CSV export, rounds, bulk results, selection, placement policies, the audit log and stats. Resume upload is next (Milestone 10).
 
 ## Problem
 
@@ -126,7 +126,36 @@ The Postman collection (`postman/`) logs in automatically: run the **Auth** fold
 | `GET /api/audit?entityType=&entityId=&from=&to=` | The audit log, newest first (who, what, old → new, when) |
 | `GET /api/stats` | Total and placed students, placement % (overall and per branch), offers per company, highest/average/median CTC, drives by status |
 
-Rounds, results and final selection: see `POST /api/drives/{id}/rounds`, `PUT .../rounds/{roundId}/results` and `POST /api/drives/{id}/selections` (decisions 47–49).
+## Student pages (Milestone 9)
+
+| Page | URL | API |
+|---|---|---|
+| Dashboard | `/student` | `GET /api/students/me`, `GET /api/students/me/applications?size=100` |
+| Open drives | `/student/drives?eligibleOnly=true&page=2` | `GET /api/students/me/drives` |
+| Drive detail + Apply | `/student/drives/{id}` | `GET /api/students/me/drives/{id}` (OPEN drives, or ones you applied to), `POST /api/students/me/applications` |
+| My applications + Withdraw | `/student/applications` | `GET /api/students/me/applications`, `POST .../applications/{id}/withdraw` |
+| Application detail (rounds) | `/student/applications/{id}` | `GET /api/students/me/applications/{id}` |
+| Profile | `/student/profile` | `GET` / `PUT /api/students/me` (name and phone only) |
+
+All times are shown in IST.
+
+## Admin pages (Milestone 9)
+
+| Page | URL | API |
+|---|---|---|
+| Companies (create, edit) | `/admin/companies?page=2` | `GET` / `POST /api/companies`, `PUT /api/companies/{id}` |
+| Drives | `/admin/drives?status=OPEN&companyId=1` | `GET /api/drives` |
+| New / edit drive | `/admin/drives/new`, `/admin/drives/{id}/edit` | `POST /api/drives`, `PUT /api/drives/{id}` (DRAFT or OPEN only) |
+| Drive detail + status actions | `/admin/drives/{id}` | `GET /api/drives/{id}`, `POST .../open`, `.../close`, `.../complete` |
+| Applicants + CSV export | `/admin/drives/{id}/applicants?status=&branch=&minCgpa=` | `GET /api/drives/{id}/applications`, `GET .../applications/export` |
+| Rounds (list, add, edit) | `/admin/drives/{id}/rounds` | `GET` / `POST /api/drives/{id}/rounds`, `PUT .../rounds/{roundId}` (OPEN or CLOSED) |
+| Bulk results | `/admin/drives/{id}/rounds/{roundId}/results` | `PUT .../rounds/{roundId}/results` (CLOSED only, all or nothing) |
+| Selection | `/admin/drives/{id}/selection` | `POST /api/drives/{id}/selections` (CLOSED only, all or nothing, no undo) |
+| Placement policies | `/admin/policies` | `GET /api/policies`, `PUT /api/policies/{type}` |
+| Audit log | `/admin/audit?entityType=&entityId=&from=&to=&page=2` | `GET /api/audit` |
+| Stats | `/admin` | `GET /api/stats` |
+
+Times are typed and shown in IST, whatever the computer's timezone. The audit log's from and to are whole IST days (decision 85).
 
 ## Tests
 
@@ -155,7 +184,22 @@ The frontend reads one build-time variable (see `frontend/.env.example`; put ove
 |---|---|
 | `VITE_API_BASE_URL` | empty: requests go to `/api` on the same origin (the Vite dev proxy). In Milestone 12 it points at the deployed backend, e.g. `https://<your-backend>.onrender.com`. |
 
+## Known limitations
+
+Each one has a decision entry with the reasons and the planned fix.
+
+- **Company names:** uniqueness is case-insensitive in the service but the DB constraint is case-sensitive, so two simultaneous creates could store both "Nimbus" and "nimbus" (decision 16).
+- **Company dropdowns** on the drive pages list at most 100 companies, the API's maximum page size (decision 77).
+- **Drive date before the registration deadline** returns 409 instead of 400 (decision 78, fix in Milestone 11).
+- **Postman runs write to the dev database**, so test companies, drives and students pile up (decision 79, a separate test DB in Milestone 11).
+- The student dashboard's status counts cover the 100 most recent applications (decision 70).
+- **Results sheet:** there is no endpoint to read one round's results, so a student with a result in a later round is read-only on earlier sheets, and those earlier remarks can't be viewed or edited (decision 80).
+- **Selection has no preview:** a placement policy block appears only after you confirm, as a 409 naming each student (decision 81).
+- **The audit log shows IDs, not names,** for example "Application #12" (decision 82).
+- **Who changed a policy** is visible only in the audit log; the policies page shows when, not who (decision 83).
+
 ## Docs
 
 - [Design decisions](docs/decisions.md)
 - [Learning log](docs/learning-log.md)
+- [Milestone history](docs/milestone-history.md)

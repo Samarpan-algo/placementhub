@@ -1,19 +1,11 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import api from '../api/client.js';
-import { toApiError } from '../api/errors.js';
+import { FIX_FIELDS_MESSAGE, toApiError } from '../api/errors.js';
 import ErrorAlert from '../components/ErrorAlert.jsx';
 import Field from '../components/Field.jsx';
-
-// Must match the backend's Branch enum (common/Branch.java)
-const BRANCHES = [
-  { code: 'CSE', name: 'Computer Science' },
-  { code: 'IT', name: 'Information Technology' },
-  { code: 'ECE', name: 'Electronics & Communication' },
-  { code: 'EEE', name: 'Electrical & Electronics' },
-  { code: 'ME', name: 'Mechanical' },
-  { code: 'CE', name: 'Civil' },
-];
+import { BRANCHES, branchLabel } from '../utils/branches.js';
+import { useFormErrors } from '../utils/useFormErrors.js';
 
 const EMPTY_FORM = {
   email: '',
@@ -94,11 +86,6 @@ function validate(form) {
   return errors;
 }
 
-function branchLabel(code) {
-  const branch = BRANCHES.find((b) => b.code === code);
-  return branch ? `${branch.code} (${branch.name})` : code;
-}
-
 /** The "check before you send" screen. Pure display: the parent owns the data and the two actions. */
 function ReviewDetails({ form, error, submitting, onEdit, onConfirm }) {
   // [label, value, locked?] for every field, in the same order as the form
@@ -151,8 +138,7 @@ export default function RegisterPage() {
   const navigate = useNavigate();
   // One state object for the whole form, plus one for the error under each field
   const [form, setForm] = useState(EMPTY_FORM);
-  const [fieldErrors, setFieldErrors] = useState({});
-  const [error, setError] = useState(null);
+  const { fieldErrors, setFieldErrors, error, setError, clearFieldError } = useFormErrors();
   const [submitting, setSubmitting] = useState(false);
   // false = show the form, true = show the review screen. `form` keeps the values either way.
   const [reviewing, setReviewing] = useState(false);
@@ -163,6 +149,7 @@ export default function RegisterPage() {
     const { name, value } = event.target;
     // Roll numbers are stored uppercase (the backend uppercases too), so show them that way while typing
     setForm({ ...form, [name]: name === 'rollNo' ? value.toUpperCase() : value });
+    clearFieldError(name);
   }
 
   // Step 1: the form's Register button. Nothing is sent yet; valid values go to the review screen.
@@ -174,7 +161,7 @@ export default function RegisterPage() {
     const errors = validate(values);
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) {
-      setError({ message: 'Please fix the highlighted fields.', details: [] });
+      setError({ message: FIX_FIELDS_MESSAGE, details: [] });
       return;
     }
     setError(null);

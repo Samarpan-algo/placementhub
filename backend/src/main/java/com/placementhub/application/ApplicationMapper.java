@@ -27,7 +27,8 @@ public class ApplicationMapper {
 				application.getStatus(),
 				application.getStatusReason(),
 				application.getAppliedAt(),
-				drive.getRegistrationDeadline());
+				drive.getRegistrationDeadline(),
+				drive.getStatus());
 	}
 
 	/**
@@ -50,7 +51,7 @@ public class ApplicationMapper {
 		ApplicationResponse base = toResponse(application);
 		return new ApplicationDetailResponse(base.id(), base.driveId(), base.companyName(), base.roleTitle(),
 				base.jobType(), base.ctcLpa(), base.status(), base.statusReason(), base.appliedAt(),
-				base.registrationDeadline(), tracking);
+				base.registrationDeadline(), base.driveStatus(), tracking);
 	}
 
 }

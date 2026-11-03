@@ -68,6 +68,7 @@ h2 {
 
 .header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
@@ -79,6 +80,31 @@ h2 {
 .header-brand {
   font-weight: 700;
   color: var(--color-primary);
+  text-decoration: none;
+}
+
+.header-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  flex: 1;
+}
+
+.nav-link {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.nav-link:hover {
+  background: var(--color-bg);
+}
+
+/* NavLink adds "active" to the link of the current page */
+.nav-link.active {
+  background: var(--color-primary);
+  color: #fff;
 }
 
 .header-user {
@@ -125,7 +151,8 @@ h2 {
 }
 
 .field input,
-.field select {
+.field select,
+.field textarea {
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -134,7 +161,8 @@ h2 {
 }
 
 .field input:focus,
-.field select:focus {
+.field select:focus,
+.field textarea:focus {
   outline: 2px solid var(--color-primary);
   outline-offset: -1px;
 }
@@ -160,6 +188,12 @@ h2 {
   cursor: pointer;
 }
 
+/* a <Link> that looks like a button */
+a.btn {
+  display: inline-block;
+  text-decoration: none;
+}
+
 .btn-primary {
   background: var(--color-primary);
   color: #fff;
@@ -173,6 +207,20 @@ h2 {
   background: var(--color-surface);
   border-color: var(--color-border);
   color: var(--color-text);
+}
+
+.btn-danger {
+  background: var(--color-error);
+  color: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #991b1b;
+}
+
+.btn-small {
+  padding: 2px var(--space-3);
+  font-size: 0.85rem;
 }
 
 .btn:disabled {
@@ -262,4 +310,396 @@ h2 {
   font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
+}
+
+
+/* ---------- page states: loading, empty, retry ---------- */
+
+.loading {
+  padding: var(--space-4) 0;
+}
+
+.empty-state {
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+}
+
+.empty-state-title {
+  margin: 0 0 var(--space-2);
+  font-weight: 600;
+}
+
+.alert-actions {
+  margin-top: var(--space-3);
+}
+
+/* ---------- status badges ---------- */
+
+.badge {
+  display: inline-block;
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  border: 1px solid;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* blue = in progress, green = good outcome, red = bad outcome, grey = finished/neutral, amber = blocked */
+.badge-applied,
+.badge-open {
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.badge-shortlisted {
+  color: #6d28d9;
+  background: #f5f3ff;
+}
+
+.badge-selected,
+.badge-cleared {
+  color: var(--color-success);
+  background: var(--color-success-bg);
+}
+
+.badge-rejected,
+.badge-not_cleared {
+  color: var(--color-error);
+  background: var(--color-error-bg);
+}
+
+.badge-withdrawn,
+.badge-draft,
+.badge-closed,
+.badge-completed,
+.badge-absent {
+  color: #4b5563;
+  background: #f3f4f6;
+}
+
+.badge-ineligible {
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+}
+
+/* ---------- pagination ---------- */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+/* ---------- confirm dialog (<dialog>) ---------- */
+
+.dialog {
+  max-width: 440px;
+  width: calc(100% - 2 * var(--space-4));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-6);
+  color: var(--color-text);
+}
+
+/* ::backdrop is the dimmed layer the browser draws behind a modal dialog */
+.dialog::backdrop {
+  background: rgb(0 0 0 / 0.4);
+}
+
+.dialog-body {
+  margin-bottom: var(--space-6);
+}
+
+/* ---------- page sections ---------- */
+
+/* Vertical spacing between the cards of a page */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.page-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.page-heading h1 {
+  margin: 0;
+}
+
+/* ---------- dashboard counts ---------- */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.stat-number {
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+/* ---------- drives ---------- */
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.drive-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.drive-card-top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.drive-title {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.drive-card .muted,
+.page-heading .muted {
+  margin: 0;
+}
+
+/* Label above value, laid out in as many columns as fit */
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+}
+
+.facts dt {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.facts dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.description {
+  white-space: pre-line; /* keep the admin's line breaks */
+}
+
+.eligibility {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  font-weight: 600;
+}
+
+.eligibility p {
+  margin: 0;
+}
+
+.eligibility ul {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-6);
+  font-weight: 400;
+}
+
+.eligibility-yes {
+  color: var(--color-success);
+  background: var(--color-success-bg);
+}
+
+.eligibility-no {
+  color: var(--color-error);
+  background: var(--color-error-bg);
+}
+
+/* ---------- tables ---------- */
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.table-wrap.card {
+  padding: 0;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: var(--space-3);
+  text-align: left;
+  vertical-align: top;
+}
+
+.table th {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table tbody tr + tr td {
+  border-top: 1px solid var(--color-border);
+}
+
+.table .actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* long free text (e.g. a description) wraps instead of stretching the table */
+.cell-text {
+  max-width: 360px;
+  white-space: pre-line;
+}
+
+.status-reason {
+  margin-top: var(--space-1);
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  max-width: 340px;
+}
+
+.application-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+/* ---------- admin forms and filters ---------- */
+
+.button-row-start {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.filter-bar .field {
+  min-width: 180px;
+}
+
+.fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.fieldset legend {
+  padding: 0 var(--space-2);
+  font-weight: 600;
+}
+
+/* same look as .field label, for a heading that isn't tied to one input */
+.field-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.checkbox-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-2);
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+/* ---------- applicants list ---------- */
+
+/* an input with its button beside it (the minimum CGPA filter) */
+.inline-input {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.inline-input input {
+  width: 7rem;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+/* ---------- results sheet, selection ---------- */
+
+.table select,
+.table input[type='text'] {
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font: inherit;
+}
+
+.remarks-input {
+  width: 100%;
+  min-width: 14rem;
+}
+
+/* a long list of names doesn't push the dialog's buttons off the screen */
+.confirm-list {
+  max-height: 12rem;
+  overflow-y: auto;
+  margin: 0 0 var(--space-3);
+}
+
+/* ---------- audit log ---------- */
+
+/* the list inside a table cell; pre-line from .cell-text doesn't apply to its whitespace */
+.change-list {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+  white-space: normal;
 }

@@ -7,6 +7,21 @@ import AppLayout from './components/AppLayout.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
 import AdminHomePage from './pages/admin/AdminHomePage.jsx';
+import ApplicantsPage from './pages/admin/ApplicantsPage.jsx';
+import AuditLogPage from './pages/admin/AuditLogPage.jsx';
+import CompaniesPage from './pages/admin/CompaniesPage.jsx';
+import AdminDriveDetailPage from './pages/admin/DriveDetailPage.jsx';
+import DriveFormPage from './pages/admin/DriveFormPage.jsx';
+import AdminDrivesPage from './pages/admin/DrivesPage.jsx';
+import PoliciesPage from './pages/admin/PoliciesPage.jsx';
+import RoundResultsPage from './pages/admin/RoundResultsPage.jsx';
+import RoundsPage from './pages/admin/RoundsPage.jsx';
+import SelectionPage from './pages/admin/SelectionPage.jsx';
+import ApplicationDetailPage from './pages/student/ApplicationDetailPage.jsx';
+import DriveDetailPage from './pages/student/DriveDetailPage.jsx';
+import DrivesPage from './pages/student/DrivesPage.jsx';
+import MyApplicationsPage from './pages/student/MyApplicationsPage.jsx';
+import ProfilePage from './pages/student/ProfilePage.jsx';
 import StudentHomePage from './pages/student/StudentHomePage.jsx';
 
 /** "/" and unknown URLs: logged in → your own home, otherwise → login. */
@@ -47,7 +62,13 @@ export default function App() {
         }
       >
         <Route index element={<StudentHomePage />} />
-        {/* /student/anything-else → back to /student until Milestone 9 adds the pages */}
+        <Route path="drives" element={<DrivesPage />} />
+        {/* :id is a URL parameter; the page reads it with useParams() */}
+        <Route path="drives/:id" element={<DriveDetailPage />} />
+        <Route path="applications" element={<MyApplicationsPage />} />
+        <Route path="applications/:id" element={<ApplicationDetailPage />} />
+        <Route path="profile" element={<ProfilePage />} />
+        {/* any other /student/... URL → back to the dashboard */}
         <Route path="*" element={<Navigate to="/student" replace />} />
       </Route>
 
@@ -60,6 +81,18 @@ export default function App() {
         }
       >
         <Route index element={<AdminHomePage />} />
+        <Route path="companies" element={<CompaniesPage />} />
+        <Route path="drives" element={<AdminDrivesPage />} />
+        {/* "new" is a fixed path, so it wins over ":id" for /admin/drives/new */}
+        <Route path="drives/new" element={<DriveFormPage />} />
+        <Route path="drives/:id" element={<AdminDriveDetailPage />} />
+        <Route path="drives/:id/edit" element={<DriveFormPage />} />
+        <Route path="drives/:id/applicants" element={<ApplicantsPage />} />
+        <Route path="drives/:id/rounds" element={<RoundsPage />} />
+        <Route path="drives/:id/rounds/:roundId/results" element={<RoundResultsPage />} />
+        <Route path="drives/:id/selection" element={<SelectionPage />} />
+        <Route path="policies" element={<PoliciesPage />} />
+        <Route path="audit" element={<AuditLogPage />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Route>
 

@@ -244,3 +244,57 @@ Short notes, in plain words, on what I learned in each milestone.
 - **The proxy makes CORS disappear in dev:** the browser only ever talks to `localhost:5173`. CORS is a browser rule, so curl and Postman never needed it. Preflight `OPTIONS` requests never carry a token, so CORS has to run before Spring Security's authentication.
 - **Not every 401 means "session expired".** A wrong password is also a 401, so the global handler skips `/api/auth/*` and requests sent without a token.
 - **Windows gotcha:** stopping `mvnw spring-boot:run` can leave its Java child process running and still holding the port.
+
+---
+
+## Milestone 9, Session A: Shared building blocks and student pages (2026-11-02)
+
+**What I built:**
+- Backend: `GET /api/students/me/drives/{id}`. It returns an OPEN drive, or any drive I applied to; everything else is the same 404. `driveStatus` added to my application responses. 19 new tests (459 in total), and Postman 251/251.
+- Shared frontend pieces: a `useApi` hook (`{data, loading, error, reload}`), `Loading`, `EmptyState`, `ErrorAlert` with "Try again", `StatusBadge`, `Pagination`, `ConfirmDialog`, IST date formatting, and a nav bar per role.
+- Student pages: dashboard (profile summary and counts by status), drives (Eligible-only toggle, every reason, pagination), drive detail with Apply, my applications with Withdraw, application detail with rounds, profile (only name and phone editable).
+
+**What I learned:**
+- **A custom hook is just a function that uses hooks.** `useApi` holds the `useEffect` + `ignore` pattern from M8 once, so every page loads data in one line.
+- **`reload()` without new code paths:** bumping a counter that is in the effect's dependency list makes the effect run again.
+- **The URL can be state.** `useSearchParams` reads and writes `?page=2&eligibleOnly=true`. Back and Refresh keep my place, and `useApi` reloads by itself because its URL changed.
+- **`useParams`** reads `:id` from the route, always as a string.
+- **`<dialog>` + `useRef`:** the browser already has modals. A ref gives me the real element, so I can call `showModal()`. Handling the `cancel` event keeps React state in control of Escape.
+- **`key` resets a component:** `<ApplySection key={drive.id}>` gets fresh state (no old success message) when I open another drive.
+- **Show only what is real:** render fields only after data has loaded, and show an error otherwise. The blank-page bug came from Vite answering `/api` itself after a branch switch, when its proxy was lost. A 404 or HTML that isn't our JSON is now an error with a hint.
+- **The frontend mirrors rules for display only.** Withdraw shows only when the backend would allow it, but the backend still decides (409).
+- **Times:** the API sends UTC; `Intl.DateTimeFormat` with `timeZone: 'Asia/Kolkata'` shows IST. A date-only value like `2026-11-22` must be formatted in UTC, or it could move to another day.
+
+---
+
+## Milestone 9, Session B: Admin pages (2026-11-04)
+
+**What I built:**
+- Backend fix: the "drive date not before the deadline" check now compares IST days, using one shared `AppTime.IST` zone (2 new tests, 461 in total). Postman 251/251.
+- Companies page: a paginated list with one create/edit form; 400 errors show under their fields.
+- Drives: a list filtered by status and company; a create/edit form (company only on create, job type only while DRAFT, branch checkboxes, deadline typed in IST); a detail page with Edit, the next status action behind a confirm dialog, and "View applicants". Saving an OPEN drive says how many pending applications became INELIGIBLE.
+- Applicants page: filters for status, branch and minimum CGPA, each status reason and the latest round, and "Export CSV" for the filtered list.
+
+**What I learned:**
+- **Put server errors under their fields, but never lose one.** `"minCgpa: must be ..."` goes under the minCgpa input; a line the form doesn't know stays in the top alert.
+- **`datetime-local` has no timezone.** I treat what the admin types as IST by adding `+05:30` myself, instead of letting the browser use the laptop's zone.
+- **Timezone bugs hide in "days".** A deadline of 3 Dec 02:00 IST is still 2 Dec in UTC, so comparing UTC days let a wrong drive date through. Unit tests at the exact boundary caught it.
+- **Refetch after a change.** After Open/Close/Save I load the drive again rather than guessing its new state, so the page always matches the database, even after a 409.
+- **Downloading a protected file.** A plain link can't send the Bearer token; axios with `responseType: 'blob'`, an object URL and a hidden `<a download>` can. The error body is a Blob too, so I read it as text to show the backend's message.
+- **JS can read only some response headers.** `Content-Disposition` (the filename) is visible to my code only because the backend's CORS config exposes it.
+- **Apply a typed filter on submit, not on every keystroke,** so "7." isn't sent half-typed. A `key` set to the URL value resets the box when filters are cleared.
+
+## Milestone 9, Session C: Rounds, results, selection, policies, audit, stats (2026-11-04)
+
+**What I built:**
+- Rounds page (list, add, edit), a bulk results sheet saved in one request, and a selection page behind a no-undo confirm dialog.
+- Policies page with one form per policy, an audit log with IST day filters and readable old → new fields, and stats tiles and tables on the admin home. No chart library and no backend changes. 461 tests, Postman 251/251.
+
+**What I learned:**
+- **Read the backend's rules before building the screen.** Which rows belong on a results sheet follows from its rules. Because a fail can't exist before a later result, the latest result alone tells me about all earlier rounds.
+- **Keep edits apart from server data.** Drafts live in their own state, so refetching after a failed save shows fresh data without losing what the admin typed.
+- **Send only what changed.** The confirm dialog can say "2 new, 1 correction", and an untouched row can't fail the save.
+- **Never drop an error line.** I add names to the lines I can match and leave the rest exactly as they were.
+- **"Inclusive end day" means an exclusive next-day start.** To include all of 4 Nov IST, I send `to` as 5 Nov 00:00 IST, because the backend's `to` is exclusive.
+- **A disabled button plus a stale error is a trap.** My own browser test found a form stuck until refresh: the error cleared only on submit, and submit was disabled. Fixing it in one shared hook fixed every form at once, which is why I checked the other forms instead of patching one.
+- **A custom hook shares logic, not looks.** `useFormErrors` holds no markup, only the state and the rule for clearing it.

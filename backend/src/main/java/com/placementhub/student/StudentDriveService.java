@@ -5,6 +5,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.data.domain.PageImpl;
@@ -13,11 +15,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.placementhub.application.ApplicationRepository;
-import com.placementhub.application.ApplicationStatus;
 import com.placementhub.application.DriveApplicationStatus;
 import com.placementhub.application.EligibilityResult;
 import com.placementhub.application.EligibilityService;
 import com.placementhub.common.PageResponse;
+import com.placementhub.common.ResourceNotFoundException;
 import com.placementhub.drive.Drive;
 import com.placementhub.drive.DriveMapper;
 import com.placementhub.drive.DriveRepository;
@@ -69,7 +71,7 @@ public class StudentDriveService {
 		// 2 queries: drives JOIN companies, then one batch for all branches
 		List<Drive> drives = driveRepository.findByStatusOrderByRegistrationDeadlineAsc(DriveStatus.OPEN);
 		// +1 query: the student's application status on all of these drives at once
-		Map<Long, ApplicationStatus> statusByDriveId = applicationStatuses(student, drives);
+		Map<Long, DriveApplicationStatus> applicationByDriveId = applications(student, drives);
 		// +1 query: active policies; +1 query: the student's offers (skipped if no policy is active).
 		// Loaded once for all drives, so the query count stays fixed (at most 5) however many drives there are.
 		List<PlacementPolicy> activePolicies = policyRepository.findByActiveTrue();
@@ -78,28 +80,62 @@ public class StudentDriveService {
 				: applicationRepository.findSelectedOffers(student.getId());
 
 		List<StudentDriveResponse> items = drives.stream()
-				.map(drive -> {
-					EligibilityResult eligibility = eligibilityService.evaluate(student, drive, now);
-					PolicyEvaluation policies = policyEngine.evaluate(activePolicies, drive, offers);
-					List<String> reasons = new ArrayList<>(eligibility.reasons());
-					reasons.addAll(policies.reasons());
-					return new StudentDriveResponse(driveMapper.toResponse(drive),
-							eligibility.eligible() && policies.allowed(), List.copyOf(reasons),
-							statusByDriveId.get(drive.getId()));
-				})
+				.map(drive -> toItem(student, drive, now, activePolicies, offers, applicationByDriveId.get(drive.getId())))
 				.filter(item -> !eligibleOnly || item.eligible())
 				.toList();
 
 		return PageResponse.from(pageOf(items, pageable));
 	}
 
-	private Map<Long, ApplicationStatus> applicationStatuses(StudentProfile student, List<Drive> drives) {
+	/**
+	 * One drive, in the same shape as a browse item. Visible if it is OPEN, or if the student has an
+	 * application to it (any status), so links from "My applications" keep working after a drive closes.
+	 * Anything else (a DRAFT drive, a closed drive they never applied to, a missing id) is the same 404,
+	 * so a student can't discover which drive ids exist. A non-OPEN drive is never eligible: the
+	 * EligibilityService "not open" rule adds that reason. At most 5 queries.
+	 */
+	@Transactional(readOnly = true)
+	public StudentDriveResponse getOne(Long driveId) {
+		StudentProfile student = currentStudentResolver.requireProfile();
+		Instant now = Instant.now(clock);
+
+		Optional<Drive> found = driveRepository.findById(driveId);
+		DriveApplicationStatus application = found.isEmpty()
+				? null
+				: applicationRepository.findByDriveIdAndStudentId(driveId, student.getId())
+						.map(a -> new DriveApplicationStatus(driveId, a.getId(), a.getStatus()))
+						.orElse(null);
+		// Drives never go back to DRAFT and apply needs OPEN, so a DRAFT drive never has an application
+		Drive drive = found
+				.filter(d -> d.getStatus() == DriveStatus.OPEN || application != null)
+				.orElseThrow(() -> ResourceNotFoundException.of("Drive", driveId));
+
+		List<PlacementPolicy> activePolicies = policyRepository.findByActiveTrue();
+		List<Offer> offers = activePolicies.isEmpty()
+				? List.of()
+				: applicationRepository.findSelectedOffers(student.getId());
+		return toItem(student, drive, now, activePolicies, offers, application);
+	}
+
+	/** Eligibility reasons first, then policy reasons; eligible only if both pass. application = null if not applied. */
+	private StudentDriveResponse toItem(StudentProfile student, Drive drive, Instant now,
+			List<PlacementPolicy> activePolicies, List<Offer> offers, DriveApplicationStatus application) {
+		EligibilityResult eligibility = eligibilityService.evaluate(student, drive, now);
+		PolicyEvaluation policies = policyEngine.evaluate(activePolicies, drive, offers);
+		List<String> reasons = new ArrayList<>(eligibility.reasons());
+		reasons.addAll(policies.reasons());
+		return new StudentDriveResponse(driveMapper.toResponse(drive), eligibility.eligible() && policies.allowed(),
+				List.copyOf(reasons), application == null ? null : application.applicationId(),
+				application == null ? null : application.status());
+	}
+
+	private Map<Long, DriveApplicationStatus> applications(StudentProfile student, List<Drive> drives) {
 		if (drives.isEmpty()) {
 			return Map.of(); // skip the query: "IN ()" would be pointless
 		}
 		List<Long> driveIds = drives.stream().map(Drive::getId).toList();
 		return applicationRepository.findStatuses(student.getId(), driveIds).stream()
-				.collect(Collectors.toMap(DriveApplicationStatus::driveId, DriveApplicationStatus::status));
+				.collect(Collectors.toMap(DriveApplicationStatus::driveId, Function.identity()));
 	}
 
 	private static <T> PageImpl<T> pageOf(List<T> all, Pageable pageable) {

@@ -1697,6 +1697,170 @@
           ]
         },
         {
+          "name": "Aarav: get one drive, applicationStatus APPLIED (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/drives/{{studentDriveId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, same shape as a browse item', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.drive.id).to.eql(Number(pm.collectionVariables.get('studentDriveId')));",
+                  "  pm.expect(body.applicationStatus).to.eql('APPLIED');",
+                  "  pm.expect(body.applicationId).to.eql(Number(pm.collectionVariables.get('applicationId')));",
+                  "  pm.expect(body.reasons).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Priya: get the same OPEN drive, not eligible with every reason (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/drives/{{studentDriveId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{priyaToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, not eligible, CGPA reason, not applied', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.eligible).to.eql(false);",
+                  "  pm.expect(body.reasons.join(' ')).to.include('Minimum CGPA');",
+                  "  pm.expect(body.applicationStatus).to.eql(null);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Aarav: get a missing drive (404)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/drives/999999",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 with the standard error JSON', () => {",
+                  "  pm.response.to.have.status(404);",
+                  "  pm.expect(pm.response.json().message).to.match(/^Drive with id \\d+ not found$/);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Aarav: get a DRAFT drive (404)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/drives/1",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// seed drive #1 is DRAFT",
+                  "pm.test('404 with the standard error JSON', () => {",
+                  "  pm.response.to.have.status(404);",
+                  "  pm.expect(pm.response.json().message).to.match(/^Drive with id \\d+ not found$/);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Aarav: get a COMPLETED drive he never applied to (404)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/drives/{{driveId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{aaravToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// {{driveId}} was completed in the Drives folder; Aarav never applied to it",
+                  "pm.test('404 with the standard error JSON', () => {",
+                  "  pm.response.to.have.status(404);",
+                  "  pm.expect(pm.response.json().message).to.match(/^Drive with id \\d+ not found$/);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Aarav: list my applications (200)",
           "request": {
             "method": "GET",
@@ -1722,6 +1886,10 @@
                   "  pm.response.to.have.status(200);",
                   "  const ids = pm.response.json().content.map(a => a.id);",
                   "  pm.expect(ids).to.include(Number(pm.collectionVariables.get('applicationId')));",
+                  "});",
+                  "pm.test('each application has the drive status', () => {",
+                  "  const mine = pm.response.json().content.find(a => a.id === Number(pm.collectionVariables.get('applicationId')));",
+                  "  pm.expect(mine.driveStatus).to.eql('OPEN');",
                   "});"
                 ]
               }
@@ -3637,6 +3805,72 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('200 COMPLETED', () => pm.expect(pm.response.json().status).to.eql('COMPLETED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student 1: get COMPLETED drive A, applied, so visible and not eligible (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/drives/{{lcDriveA}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lcToken1}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, SELECTED, never eligible once completed', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.drive.status).to.eql('COMPLETED');",
+                  "  pm.expect(body.applicationStatus).to.eql('SELECTED');",
+                  "  pm.expect(body.eligible).to.eql(false);",
+                  "  pm.expect(body.reasons[0]).to.include('not open');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Student 2: get CLOSED drive B, never applied (404)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/drives/{{lcDriveB}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lcToken2}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 with the standard error JSON', () => {",
+                  "  pm.response.to.have.status(404);",
+                  "  pm.expect(pm.response.json().message).to.match(/^Drive with id \\d+ not found$/);",
+                  "});"
                 ]
               }
             }

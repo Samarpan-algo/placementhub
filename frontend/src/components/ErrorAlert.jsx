@@ -1,5 +1,8 @@
-/** Shows an error from toApiError(): the message, plus every detail line (if any). Renders nothing for null. */
-export default function ErrorAlert({ error }) {
+/**
+ * Shows an error from toApiError(): the message, plus every detail line (if any). Renders nothing for null.
+ * Pass onRetry to add a "Try again" button (used when a page failed to load).
+ */
+export default function ErrorAlert({ error, onRetry }) {
   if (!error) {
     return null;
   }
@@ -13,6 +16,13 @@ export default function ErrorAlert({ error }) {
             <li key={detail}>{detail}</li>
           ))}
         </ul>
+      )}
+      {onRetry && (
+        <div className="alert-actions">
+          <button type="button" className="btn btn-secondary" onClick={onRetry}>
+            Try again
+          </button>
+        </div>
       )}
     </div>
   );
