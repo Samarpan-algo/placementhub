@@ -12,6 +12,7 @@ import CompaniesPage from './pages/admin/CompaniesPage.jsx';
 import AdminDriveDetailPage from './pages/admin/DriveDetailPage.jsx';
 import DriveFormPage from './pages/admin/DriveFormPage.jsx';
 import AdminDrivesPage from './pages/admin/DrivesPage.jsx';
+import PoliciesPage from './pages/admin/PoliciesPage.jsx';
 import RoundResultsPage from './pages/admin/RoundResultsPage.jsx';
 import RoundsPage from './pages/admin/RoundsPage.jsx';
 import SelectionPage from './pages/admin/SelectionPage.jsx';
@@ -89,6 +90,7 @@ export default function App() {
         <Route path="drives/:id/rounds" element={<RoundsPage />} />
         <Route path="drives/:id/rounds/:roundId/results" element={<RoundResultsPage />} />
         <Route path="drives/:id/selection" element={<SelectionPage />} />
+        <Route path="policies" element={<PoliciesPage />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Route>
 
