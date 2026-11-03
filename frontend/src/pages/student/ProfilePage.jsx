@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import api from '../../api/client.js';
-import { toApiError } from '../../api/errors.js';
+import { FIX_FIELDS_MESSAGE, toApiError } from '../../api/errors.js';
 import { useApi } from '../../api/useApi.js';
 import ErrorAlert from '../../components/ErrorAlert.jsx';
 import Field from '../../components/Field.jsx';
 import Loading from '../../components/Loading.jsx';
 import { branchLabel } from '../../utils/branches.js';
 import { formatDateTime } from '../../utils/format.js';
+import { useFormErrors } from '../../utils/useFormErrors.js';
 
 const PHONE_PATTERN = /^\+?[0-9]{10,14}$/; // same regex as StudentProfileUpdateRequest.phone
 
@@ -23,12 +24,12 @@ function validate(form) {
 function EditForm({ profile, onSaved, onCancel }) {
   // Start from the saved values; `?? ''` because an input's value can't be null
   const [form, setForm] = useState({ fullName: profile.fullName, phone: profile.phone ?? '' });
-  const [fieldErrors, setFieldErrors] = useState({});
-  const [error, setError] = useState(null);
+  const { fieldErrors, setFieldErrors, error, setError, clearFieldError } = useFormErrors();
   const [saving, setSaving] = useState(false);
 
   function handleChange(event) {
     setForm({ ...form, [event.target.name]: event.target.value });
+    clearFieldError(event.target.name);
   }
 
   async function handleSubmit(event) {
@@ -38,7 +39,7 @@ function EditForm({ profile, onSaved, onCancel }) {
     const errors = validate(values);
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) {
-      setError({ message: 'Please fix the highlighted fields.', details: [] });
+      setError({ message: FIX_FIELDS_MESSAGE, details: [] });
       return;
     }
     setError(null);

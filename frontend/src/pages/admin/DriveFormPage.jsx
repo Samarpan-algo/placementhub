@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import api from '../../api/client.js';
-import { fieldErrorsFrom, toApiError } from '../../api/errors.js';
+import { fieldErrorsFrom, FIX_FIELDS_MESSAGE, toApiError } from '../../api/errors.js';
 import { useApi } from '../../api/useApi.js';
 import EmptyState from '../../components/EmptyState.jsx';
 import ErrorAlert from '../../components/ErrorAlert.jsx';
@@ -18,6 +18,7 @@ import {
   JOB_TYPES,
   validateDriveForm,
 } from '../../utils/drives.js';
+import { useFormErrors } from '../../utils/useFormErrors.js';
 
 /** The success message for the drive page after an edit, including what the re-evaluation did. */
 function savedMessage(saved) {
@@ -43,8 +44,7 @@ function savedMessage(saved) {
 function DriveForm({ drive, companies, onSaved, cancelTo }) {
   const isEdit = Boolean(drive);
   const [form, setForm] = useState(() => (isEdit ? driveToForm(drive) : emptyDriveForm()));
-  const [fieldErrors, setFieldErrors] = useState({});
-  const [error, setError] = useState(null);
+  const { fieldErrors, setFieldErrors, error, setError, clearFieldError } = useFormErrors();
   const [saving, setSaving] = useState(false);
 
   // DriveService: the job type can change only while DRAFT (it decides what counts as an offer)
@@ -52,6 +52,7 @@ function DriveForm({ drive, companies, onSaved, cancelTo }) {
 
   function handleChange(event) {
     setForm({ ...form, [event.target.name]: event.target.value });
+    clearFieldError(event.target.name);
   }
 
   function toggleBranch(code) {
@@ -59,6 +60,7 @@ function DriveForm({ drive, companies, onSaved, cancelTo }) {
       ? form.branches.filter((b) => b !== code)
       : [...form.branches, code];
     setForm({ ...form, branches });
+    clearFieldError('branches');
   }
 
   async function handleSubmit(event) {
@@ -66,7 +68,7 @@ function DriveForm({ drive, companies, onSaved, cancelTo }) {
     const errors = validateDriveForm(form, { requireCompany: !isEdit });
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) {
-      setError({ message: 'Please fix the highlighted fields.', details: [] });
+      setError({ message: FIX_FIELDS_MESSAGE, details: [] });
       return;
     }
     setError(null);

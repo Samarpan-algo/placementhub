@@ -28,6 +28,7 @@ export default function RoundResultsPage() {
   const [drafts, setDrafts] = useState({}); // { applicationId: { result, remarks } }
   const [message, setMessage] = useState(null);
   const [saveError, setSaveError] = useState(null);
+  const [showMissing, setShowMissing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -110,16 +111,23 @@ export default function RoundResultsPage() {
 
   function handleSaveClick() {
     setMessage(null);
+    setSaveError(null);
     if (missingResult.length > 0) {
-      setSaveError({
-        message: 'Choose a result for these students, or clear their remarks:',
-        details: missingResult.map((row) => `${row.applicant.fullName} (${row.applicant.rollNo})`),
-      });
+      setShowMissing(true);
       return;
     }
-    setSaveError(null);
+    setShowMissing(false);
     setConfirming(true);
   }
+
+  // Worked out on every render, so a name leaves the alert as soon as that row is fixed
+  const missingError =
+    showMissing && missingResult.length > 0
+      ? {
+          message: 'Choose a result for these students, or clear their remarks:',
+          details: missingResult.map((row) => `${row.applicant.fullName} (${row.applicant.rollNo})`),
+        }
+      : null;
 
   async function confirmSave() {
     setSaving(true);
@@ -150,7 +158,7 @@ export default function RoundResultsPage() {
     <div className="stack">
       {heading}
       {message && <div className="alert alert-success">{message}</div>}
-      <ErrorAlert error={saveError} />
+      <ErrorAlert error={missingError ?? saveError} />
 
       {applicants.data.content.length === 0 && <EmptyState title="No one has applied to this drive." />}
       {applicants.data.content.length > 0 && rows.length === 0 && (

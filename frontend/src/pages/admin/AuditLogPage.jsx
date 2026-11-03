@@ -8,6 +8,7 @@ import Loading from '../../components/Loading.jsx';
 import Pagination from '../../components/Pagination.jsx';
 import { actionLabel, describeChange, ENTITY_TYPES, entityLabel } from '../../utils/audit.js';
 import { formatDateTime, istDayEndExclusiveIso, istDayStartIso } from '../../utils/format.js';
+import { useFormErrors } from '../../utils/useFormErrors.js';
 
 const PAGE_SIZE = 20;
 
@@ -17,12 +18,17 @@ const PAGE_SIZE = 20;
  */
 function AuditFilters({ values, onApply, onClear }) {
   const [form, setForm] = useState(values);
-  const [errors, setErrors] = useState({});
+  const { fieldErrors: errors, setFieldErrors: setErrors, clearFieldError } = useFormErrors();
 
   function handleChange(event) {
     const next = { ...form, [event.target.name]: event.target.value };
-    if (!next.entityType) next.entityId = ''; // the backend needs a type for an id: ids repeat across types
+    if (!next.entityType) {
+      next.entityId = ''; // the backend needs a type for an id: ids repeat across types
+      clearFieldError('entityId');
+    }
     setForm(next);
+    clearFieldError(event.target.name);
+    if (event.target.name === 'from') clearFieldError('to'); // that message is about both days
   }
 
   function handleSubmit(event) {

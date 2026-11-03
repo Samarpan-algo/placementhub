@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import api from '../../api/client.js';
-import { fieldErrorsFrom, toApiError } from '../../api/errors.js';
+import { fieldErrorsFrom, FIX_FIELDS_MESSAGE, toApiError } from '../../api/errors.js';
 import { useApi } from '../../api/useApi.js';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 import EmptyState from '../../components/EmptyState.jsx';
@@ -11,6 +11,7 @@ import Loading from '../../components/Loading.jsx';
 import StatusBadge from '../../components/StatusBadge.jsx';
 import { formatDateTime, isoToIstInput, istInputToIso } from '../../utils/format.js';
 import { ROUND_EDITABLE_STATUSES, roundLabel } from '../../utils/rounds.js';
+import { useFormErrors } from '../../utils/useFormErrors.js';
 
 const FIELDS = ['name', 'scheduledAt'];
 
@@ -30,8 +31,7 @@ function validate(name, scheduledAt) {
 function RoundForm({ driveId, round, nextRoundNo, onSaved, onFailed, onCancel }) {
   const [name, setName] = useState(round?.name ?? '');
   const [scheduledAt, setScheduledAt] = useState(isoToIstInput(round?.scheduledAt));
-  const [fieldErrors, setFieldErrors] = useState({});
-  const [error, setError] = useState(null);
+  const { fieldErrors, setFieldErrors, error, setError, clearFieldError } = useFormErrors();
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -60,7 +60,7 @@ function RoundForm({ driveId, round, nextRoundNo, onSaved, onFailed, onCancel })
     const errors = validate(name.trim(), scheduledAt);
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) {
-      setError({ message: 'Please fix the highlighted fields.', details: [] });
+      setError({ message: FIX_FIELDS_MESSAGE, details: [] });
       return;
     }
     setError(null);
@@ -79,7 +79,10 @@ function RoundForm({ driveId, round, nextRoundNo, onSaved, onFailed, onCancel })
               id="roundName"
               placeholder="e.g. Technical interview"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                clearFieldError('name');
+              }}
             />
           </Field>
           <Field
@@ -92,7 +95,10 @@ function RoundForm({ driveId, round, nextRoundNo, onSaved, onFailed, onCancel })
               id="roundScheduledAt"
               type="datetime-local"
               value={scheduledAt}
-              onChange={(e) => setScheduledAt(e.target.value)}
+              onChange={(e) => {
+                setScheduledAt(e.target.value);
+                clearFieldError('scheduledAt');
+              }}
             />
           </Field>
         </div>

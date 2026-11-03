@@ -2,6 +2,9 @@
 // (one line per invalid field on a 400, every reason on a 422). This turns any axios error into
 // { status, message, details } that a page can show with <ErrorAlert />.
 
+/** The top alert while the problems are shown under their fields. useFormErrors clears it when they are fixed. */
+export const FIX_FIELDS_MESSAGE = 'Please fix the highlighted fields.';
+
 export function toApiError(error) {
   const response = error?.response;
 
@@ -74,6 +77,6 @@ export function fieldErrorsFrom(apiError, fields) {
       unmatched.push(line);
     }
   }
-  const message = unmatched.length > 0 ? apiError.message : 'Please fix the highlighted fields.';
+  const message = unmatched.length > 0 ? apiError.message : FIX_FIELDS_MESSAGE;
   return { fieldErrors, error: { ...apiError, message, details: unmatched } };
 }

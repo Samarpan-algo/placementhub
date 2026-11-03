@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import api from '../../api/client.js';
-import { fieldErrorsFrom, toApiError } from '../../api/errors.js';
+import { fieldErrorsFrom, FIX_FIELDS_MESSAGE, toApiError } from '../../api/errors.js';
 import { useApi } from '../../api/useApi.js';
 import ConfirmDialog from '../../components/ConfirmDialog.jsx';
 import EmptyState from '../../components/EmptyState.jsx';
@@ -8,6 +8,7 @@ import ErrorAlert from '../../components/ErrorAlert.jsx';
 import Field from '../../components/Field.jsx';
 import Loading from '../../components/Loading.jsx';
 import { formatCtc, formatDateTime } from '../../utils/format.js';
+import { useFormErrors } from '../../utils/useFormErrors.js';
 
 const FIELDS = ['active', 'ctcThresholdLpa', 'maxOffers'];
 
@@ -58,8 +59,8 @@ function PolicyCard({ policy, onSaved, onFailed }) {
   const [active, setActive] = useState(policy.active);
   const [threshold, setThreshold] = useState(savedThreshold);
   const [maxOffers, setMaxOffers] = useState(savedMaxOffers);
-  const [fieldErrors, setFieldErrors] = useState({});
-  const [error, setError] = useState(null);
+  const { fieldErrors, setFieldErrors, error, setError, clearFieldError } = useFormErrors();
+  const [nothingToSave, setNothingToSave] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -67,16 +68,24 @@ function PolicyCard({ policy, onSaved, onFailed }) {
   const maxOffersChanged = info.setting === 'maxOffers' && Number(maxOffers) !== Number(savedMaxOffers);
   const changed = active !== policy.active || thresholdChanged || maxOffersChanged;
 
+  function editField(name, setValue, value) {
+    setValue(value);
+    clearFieldError(name);
+    setNothingToSave(false);
+  }
+
   function handleSubmit(event) {
     event.preventDefault();
     const errors = validate(info.setting, threshold.trim(), maxOffers.trim());
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) {
-      setError({ message: 'Please fix the highlighted fields.', details: [] });
+      setError({ message: FIX_FIELDS_MESSAGE, details: [] });
       return;
     }
     setError(null);
-    setConfirming(true);
+    // Typing the saved value again is not an error, but there is nothing to confirm or send
+    if (changed) setConfirming(true);
+    else setNothingToSave(true);
   }
 
   async function confirmSave() {
@@ -113,7 +122,7 @@ function PolicyCard({ policy, onSaved, onFailed }) {
       <form className="form" onSubmit={handleSubmit} noValidate>
         <ErrorAlert error={error} />
         <label className="toggle">
-          <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+          <input type="checkbox" checked={active} onChange={(e) => editField('active', setActive, e.target.checked)} />
           Active
         </label>
         {fieldErrors.active && <span className="field-error">{fieldErrors.active}</span>}
@@ -129,7 +138,7 @@ function PolicyCard({ policy, onSaved, onFailed }) {
               id="ctcThresholdLpa"
               inputMode="decimal"
               value={threshold}
-              onChange={(e) => setThreshold(e.target.value)}
+              onChange={(e) => editField('ctcThresholdLpa', setThreshold, e.target.value)}
             />
           </Field>
         )}
@@ -140,12 +149,13 @@ function PolicyCard({ policy, onSaved, onFailed }) {
             error={fieldErrors.maxOffers}
             hint="Kept even while the policy is inactive."
           >
-            <input id="maxOffers" inputMode="numeric" value={maxOffers} onChange={(e) => setMaxOffers(e.target.value)} />
+            <input id="maxOffers" inputMode="numeric" value={maxOffers} onChange={(e) => editField('maxOffers', setMaxOffers, e.target.value)} />
           </Field>
         )}
 
+        {nothingToSave && <p className="hint">No changes to save: these are already the saved settings.</p>}
         <div className="button-row">
-          <button type="submit" className="btn btn-primary" disabled={!changed || saving}>
+          <button type="submit" className="btn btn-primary" disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>

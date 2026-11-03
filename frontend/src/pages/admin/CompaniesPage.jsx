@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import api from '../../api/client.js';
-import { fieldErrorsFrom, toApiError } from '../../api/errors.js';
+import { fieldErrorsFrom, FIX_FIELDS_MESSAGE, toApiError } from '../../api/errors.js';
 import { useApi } from '../../api/useApi.js';
 import EmptyState from '../../components/EmptyState.jsx';
 import ErrorAlert from '../../components/ErrorAlert.jsx';
@@ -9,6 +9,7 @@ import Field from '../../components/Field.jsx';
 import Loading from '../../components/Loading.jsx';
 import Pagination from '../../components/Pagination.jsx';
 import { formatDateTime } from '../../utils/format.js';
+import { useFormErrors } from '../../utils/useFormErrors.js';
 
 const PAGE_SIZE = 10;
 const FIELDS = ['name', 'website', 'description'];
@@ -41,12 +42,12 @@ function CompanyForm({ company, onSaved, onCancel }) {
     website: company?.website ?? '',
     description: company?.description ?? '',
   });
-  const [fieldErrors, setFieldErrors] = useState({});
-  const [error, setError] = useState(null);
+  const { fieldErrors, setFieldErrors, error, setError, clearFieldError } = useFormErrors();
   const [saving, setSaving] = useState(false);
 
   function handleChange(event) {
     setForm({ ...form, [event.target.name]: event.target.value });
+    clearFieldError(event.target.name);
   }
 
   async function handleSubmit(event) {
@@ -56,7 +57,7 @@ function CompanyForm({ company, onSaved, onCancel }) {
     const errors = validate(values);
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) {
-      setError({ message: 'Please fix the highlighted fields.', details: [] });
+      setError({ message: FIX_FIELDS_MESSAGE, details: [] });
       return;
     }
     setError(null);

@@ -48,7 +48,10 @@ function MinCgpaFilter({ value, onApply }) {
           inputMode="decimal"
           placeholder="e.g. 7.5"
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            setError(null);
+          }}
         />
         <button type="submit" className="btn btn-secondary">
           Apply
