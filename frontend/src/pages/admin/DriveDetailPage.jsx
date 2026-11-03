@@ -92,6 +92,14 @@ export default function DriveDetailPage() {
           <Link to={`/admin/drives/${drive.id}/applicants`} className="btn btn-secondary">
             View applicants
           </Link>
+          <Link to={`/admin/drives/${drive.id}/rounds`} className="btn btn-secondary">
+            Rounds
+          </Link>
+          {drive.status === 'CLOSED' && (
+            <Link to={`/admin/drives/${drive.id}/selection`} className="btn btn-secondary">
+              Selection
+            </Link>
+          )}
         </div>
         {!action && <p className="muted">Completed is the final status: no further changes are possible.</p>}
 
