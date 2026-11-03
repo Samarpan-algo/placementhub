@@ -694,3 +694,12 @@ a.btn {
   overflow-y: auto;
   margin: 0 0 var(--space-3);
 }
+
+/* ---------- audit log ---------- */
+
+/* the list inside a table cell; pre-line from .cell-text doesn't apply to its whitespace */
+.change-list {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+  white-space: normal;
+}

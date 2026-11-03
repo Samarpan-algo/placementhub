@@ -77,3 +77,21 @@ export function istInputToIso(value) {
   const date = new Date(`${value}:00+05:30`);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
+
+// ---------- whole IST days (<input type="date">, e.g. the audit log's filters) ----------
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** "2026-11-04" -> "2026-11-03T18:30:00.000Z": the instant that IST day starts; null if it isn't a date. */
+export function istDayStartIso(day) {
+  return istInputToIso(`${day}T00:00`);
+}
+
+/**
+ * "2026-11-04" -> "2026-11-04T18:30:00.000Z": the instant the NEXT IST day starts, for an EXCLUSIVE end, so
+ * the whole of 4 Nov is included. India has no daylight saving, so every IST day is exactly 24 hours.
+ */
+export function istDayEndExclusiveIso(day) {
+  const start = istDayStartIso(day);
+  return start && new Date(new Date(start).getTime() + DAY_MS).toISOString();
+}

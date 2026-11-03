@@ -16,6 +16,7 @@ const NAV_LINKS = {
     { to: '/admin/companies', label: 'Companies' },
     { to: '/admin/drives', label: 'Drives' },
     { to: '/admin/policies', label: 'Policies' },
+    { to: '/admin/audit', label: 'Audit log' },
   ],
 };
 
