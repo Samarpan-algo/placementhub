@@ -1,6 +1,6 @@
 # PlacementHub
 
-> Status: backend v1 features done (Milestones 1–7). Frontend (Milestones 8–9): login, student registration, role-based routing, and all student pages (dashboard, drives with eligibility and apply, my applications with withdraw and round tracking, profile). Admin pages next (Milestone 9, Session B).
+> Status: backend v1 features done (Milestones 1–7). Frontend (Milestones 8–9): login, student registration, role-based routing, and all student pages (dashboard, drives with eligibility and apply, my applications with withdraw and round tracking, profile), and admin pages for companies, drives (create/edit, open/close/complete) and applicants with CSV export. Rounds, results, policies, audit log and stats pages next (Milestone 9, Session C).
 
 ## Problem
 
@@ -139,6 +139,18 @@ The Postman collection (`postman/`) logs in automatically: run the **Auth** fold
 
 All times are shown in IST.
 
+## Admin pages (Milestone 9)
+
+| Page | URL | API |
+|---|---|---|
+| Companies (create, edit) | `/admin/companies?page=2` | `GET` / `POST /api/companies`, `PUT /api/companies/{id}` |
+| Drives | `/admin/drives?status=OPEN&companyId=1` | `GET /api/drives` |
+| New / edit drive | `/admin/drives/new`, `/admin/drives/{id}/edit` | `POST /api/drives`, `PUT /api/drives/{id}` (DRAFT or OPEN only) |
+| Drive detail + status actions | `/admin/drives/{id}` | `GET /api/drives/{id}`, `POST .../open`, `.../close`, `.../complete` |
+| Applicants + CSV export | `/admin/drives/{id}/applicants?status=&branch=&minCgpa=` | `GET /api/drives/{id}/applications`, `GET .../applications/export` |
+
+The registration deadline is typed and shown in IST, whatever the computer's timezone.
+
 Rounds, results and final selection: see `POST /api/drives/{id}/rounds`, `PUT .../rounds/{roundId}/results` and `POST /api/drives/{id}/selections` (decisions 47–49).
 
 ## Tests
@@ -167,6 +179,16 @@ The frontend reads one build-time variable (see `frontend/.env.example`; put ove
 | Variable | Default if not set |
 |---|---|
 | `VITE_API_BASE_URL` | empty: requests go to `/api` on the same origin (the Vite dev proxy). In Milestone 12 it points at the deployed backend, e.g. `https://<your-backend>.onrender.com`. |
+
+## Known limitations
+
+Each one has a decision entry with the reasons and the planned fix.
+
+- **Company names:** uniqueness is case-insensitive in the service but the DB constraint is case-sensitive, so two simultaneous creates could store both "Nimbus" and "nimbus" (decision 16).
+- **Company dropdowns** on the drive pages list at most 100 companies, the API's maximum page size (decision 77).
+- **Drive date before the registration deadline** returns 409 instead of 400 (decision 78, fix in Milestone 11).
+- **Postman runs write to the dev database**, so test companies, drives and students pile up (decision 79, a separate test DB in Milestone 11).
+- The student dashboard's status counts cover the 100 most recent applications (decision 70).
 
 ## Docs
 

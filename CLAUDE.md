@@ -140,7 +140,7 @@ Each milestone lists what "done" means.
 
 ## Current status
 <!-- I'll update this line as I go -->
-Milestone: 9 (Session A done: student pages; Session B next: admin pages). M1 done: Docker Postgres 17, Spring Boot 4.1.2 skeleton,
+Milestone: 9 (Session A done: student pages; Session B done: admin pages; Session C next: rounds/results/policies/audit/stats). M1 done: Docker Postgres 17, Spring Boot 4.1.2 skeleton,
 /api/health with DB check, README v0. M2 done: Flyway V1 schema (10 tables, CHECKs,
 FK indexes, INELIGIBLE + status_reason) and V2 demo seed (1 admin, 6 students, 3 companies, 5 drives, policies).
 M3 done: entities (ddl-auto validate), global error handler, PageResponse, Companies + Drives CRUD
@@ -155,3 +155,5 @@ M7 done: audit log (results, policies, criteria edits), rounds/bulk results/sele
 M8 done: React + Vite frontend, dev proxy + CORS env var, axios client (Bearer, global 401), AuthContext + role routes, login/register (review step, roll no rule); 440 tests, Postman 239/239 (decisions #62-66).
 M9 Session A: student drive detail endpoint (OPEN or applied, else 404) + driveStatus on applications, useApi hook + shared
 components (IST dates, badges, pagination, confirm dialog, role nav), all student pages; 459 tests, Postman 251/251 (decisions #67-71).
+M9 Session B: admin companies, drives (IST deadline, status actions), applicants + CSV; IST drive-date fix (AppTime.IST);
+461 tests, Postman 251/251 (decisions #72-79).

@@ -1271,3 +1271,80 @@ A 401 from `/api/auth/login` means a wrong email or password, so the login page 
 **Milestone:** 9 · **Date:** 2026-11-02
 
 **Decision:** `DriveService.checkDates` converts the registration deadline to an IST date (the shared `AppTime.IST` zone) before checking that `driveDate` is not earlier. Before, a deadline of 3 Dec 02:00 IST counted as 2 Dec (its UTC day), so a 2 Dec drive date was wrongly accepted.
+
+---
+
+## 73. 400 field errors go under their fields; anything unmatched stays in the top alert
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** `fieldErrorsFrom(apiError, fields)` splits a 400's `details[]` ("minCgpa: must be ...") between the form's fields. `branches[0]: ...` counts as `branches`. Every line that matches no field stays in the top `ErrorAlert`, so no message is ever dropped. Other statuses (409, 404, ...) are left unchanged and shown on top.
+
+**Alternatives:** show every detail line on top only (simple, but you have to find the field yourself), or show only the matched lines (unknown fields would be silently lost).
+
+**Why:** the error appears next to the input that needs fixing, and a backend rule the form doesn't know about is still visible.
+
+---
+
+## 74. The admin types the registration deadline in IST, whatever the laptop's timezone
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** `<input type="datetime-local">` holds a wall-clock time with no zone. The form treats it as IST: on save it appends India's fixed offset (`:00+05:30`, no daylight saving) and sends the UTC instant; on edit it shows the stored instant in `Asia/Kolkata` (`istInputToIso` / `isoToIstInput` in `utils/format.js`). `driveDate` is a plain date and needs no conversion. The form's "drive date not before the deadline" check compares the IST day, like the backend (decision 72).
+
+**Alternatives:** `new Date(value)`, which reads the input in the browser's own timezone.
+
+**Why:** the college is in India and students see IST everywhere. An admin whose laptop is set to another timezone would otherwise save the wrong deadline without noticing.
+
+---
+
+## 75. Admin status buttons mirror the backend's transitions, and the drive is always refetched
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** `NEXT_STATUS_ACTION` (`utils/drives.js`) has one entry per status, matching `DriveService.ALLOWED_TRANSITIONS`: DRAFT → Open, OPEN → Close, CLOSED → Mark completed (with a warning that pending applications are rejected); COMPLETED has none. Every change goes through a confirm dialog. After a status action (success or failure) or a save, the page loads the drive again from the backend instead of patching its local copy.
+
+**Alternatives:** an "allowed actions" list sent by the backend; updating local state from the response.
+
+**Why:** the rules are small and fixed, so a mirror is enough to choose which button to show; the backend still checks and answers 409. Refetching means the page always shows what the database really holds, even after a 409 because the drive changed meanwhile.
+
+---
+
+## 76. CSV export is downloaded with axios as a blob, not with a plain link
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** `downloadFile()` (`api/download.js`) calls the export endpoint through the axios client (so the Bearer token is sent), with `responseType: 'blob'`. On success it saves the bytes through a temporary object URL and a hidden `<a download>`, using the filename from `Content-Disposition` (exposed by CORS), then revokes the URL. On failure the error body is also a Blob, so it is read as text and parsed as our error JSON before `toApiError`. A 200 that isn't `text/csv` is treated as an error (decision 68). The export uses the same filters as the list on screen.
+
+**Alternatives:** `<a href="/api/.../export">` (can't send the Authorization header, so it would be a 401); a token in the query string (it would end up in server logs and browser history).
+
+**Why:** the token stays in a header, and backend errors (404, 400) are shown as messages instead of being saved as a file.
+
+---
+
+## 77. Known limitation: company dropdowns list at most 100 companies
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** the "New drive" company select and the Drives page company filter load `GET /api/companies?size=100`, the backend's `max-page-size`. If there are more, the New drive form says only the first 100 (A–Z) are listed.
+
+**Alternatives:** a search-as-you-type company picker, or an unpaged `GET /api/companies/options` endpoint returning only ids and names.
+
+**Why:** one college works with tens of companies per season, so 100 covers v1 with no backend change.
+
+---
+
+## 78. Known limitation (fix in Milestone 11): "drive date before the deadline" returns 409, not 400
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** `DriveService.checkDates` throws `ConflictException`, so this input error is a 409. The frontend checks the same rule first, so admins rarely see it. Not changed in Session B (frontend only).
+
+**Alternatives:** a 400, with `driveDate: ...` in `details[]` so it appears under the field.
+
+**Why:** it's invalid input, not a conflict with the current state, so 400 is the right status. Changing it touches the tests and the Postman collection, which belongs to the Milestone 11 testing pass.
+
+---
+
+## 79. Known limitation (fix in Milestone 11): Postman runs write to the dev database
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** the Postman collection runs against the normal dev database, so every run leaves test companies, drives, students, applications and audit rows behind (one run on 2026-11-04 added 2 companies, 5 drives, 7 users and 8 applications; one dev DB had reached 54 drives).
+
+**Alternatives:** a separate test database (its own docker-compose service or database, with a Spring profile), or cleanup requests at the end of the collection.
+
+**Why:** it's noise in dev data, not a correctness problem. A separate test DB is the cleaner fix and belongs to the Milestone 11 testing pass.

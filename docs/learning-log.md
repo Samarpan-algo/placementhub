@@ -264,3 +264,22 @@ Short notes, in plain words, on what I learned in each milestone.
 - **Show only what is real:** render fields only after data has loaded, and show an error otherwise. The blank-page bug came from Vite answering `/api` itself after a branch switch, when its proxy was lost. A 404 or HTML that isn't our JSON is now an error with a hint.
 - **The frontend mirrors rules for display only.** Withdraw shows only when the backend would allow it, but the backend still decides (409).
 - **Times:** the API sends UTC; `Intl.DateTimeFormat` with `timeZone: 'Asia/Kolkata'` shows IST. A date-only value like `2026-11-22` must be formatted in UTC, or it could move to another day.
+
+---
+
+## Milestone 9, Session B: Admin pages (2026-11-04)
+
+**What I built:**
+- Backend fix: the "drive date not before the deadline" check now compares IST days, using one shared `AppTime.IST` zone (2 new tests, 461 in total). Postman 251/251.
+- Companies page: a paginated list with one create/edit form; 400 errors show under their fields.
+- Drives: a list filtered by status and company; a create/edit form (company only on create, job type only while DRAFT, branch checkboxes, deadline typed in IST); a detail page with Edit, the next status action behind a confirm dialog, and "View applicants". Saving an OPEN drive says how many pending applications became INELIGIBLE.
+- Applicants page: filters for status, branch and minimum CGPA, each status reason and the latest round, and "Export CSV" for the filtered list.
+
+**What I learned:**
+- **Put server errors under their fields, but never lose one.** `"minCgpa: must be ..."` goes under the minCgpa input; a line the form doesn't know stays in the top alert.
+- **`datetime-local` has no timezone.** I treat what the admin types as IST by adding `+05:30` myself, instead of letting the browser use the laptop's zone.
+- **Timezone bugs hide in "days".** A deadline of 3 Dec 02:00 IST is still 2 Dec in UTC, so comparing UTC days let a wrong drive date through. Unit tests at the exact boundary caught it.
+- **Refetch after a change.** After Open/Close/Save I load the drive again rather than guessing its new state, so the page always matches the database, even after a 409.
+- **Downloading a protected file.** A plain link can't send the Bearer token; axios with `responseType: 'blob'`, an object URL and a hidden `<a download>` can. The error body is a Blob too, so I read it as text to show the backend's message.
+- **JS can read only some response headers.** `Content-Disposition` (the filename) is visible to my code only because the backend's CORS config exposes it.
+- **Apply a typed filter on submit, not on every keystroke,** so "7." isn't sent half-typed. A `key` set to the URL value resets the box when filters are cleared.
