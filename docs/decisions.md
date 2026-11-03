@@ -1348,3 +1348,102 @@ A 401 from `/api/auth/login` means a wrong email or password, so the login page 
 **Alternatives:** a separate test database (its own docker-compose service or database, with a Spring profile), or cleanup requests at the end of the collection.
 
 **Why:** it's noise in dev data, not a correctness problem. A separate test DB is the cleaner fix and belongs to the Milestone 11 testing pass.
+
+---
+
+## 80. Known limitation: the results sheet works from each student's latest result only
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** There is no endpoint to read one round's results, so the sheet uses `progress.latestRound` from the applicants list. A student with a result in a later round appears under "Not on this sheet" and can't be edited there. Their earlier remarks can't be viewed or edited. The sheet sends only the rows that changed.
+
+**Alternatives:** A new `GET .../rounds/{roundId}/results` endpoint (a backend change, the clean v2 fix); or sending every row each time.
+
+**Why:** The latest result is enough to know where a student stands: the backend won't record a fail while a later result exists, or round N without CLEARED in round N-1, so all earlier rounds were cleared. Read-only rows stop a blank remark overwriting one the sheet can't see. Sending only changes makes the confirm count honest, and one stale row can't fail a save for no reason.
+
+---
+
+## 81. Known limitation: selection has no policy preview
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** The page ticks only students who pass the status and final-round rules. A placement policy block appears only after confirming, as a 409 that names each student, and nothing is selected.
+
+**Alternatives:** A preview endpoint that runs the policy engine for each applicant; or copying the policy rules into the frontend.
+
+**Why:** Rules belong in one place, the backend. A copy in React would drift. Selection is all or nothing, so a late 409 changes no data; it costs one extra click.
+
+---
+
+## 82. Known limitation: the audit log shows IDs, not names
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** Rows show "Application #12" or "Drive #3", plus the changed fields. The filters are the backend's only: entity type, entity ID and a date range, with no action or actor filter.
+
+**Alternatives:** Add names to the audit JSON or join them in the audit response (a backend change).
+
+**Why:** The log records exactly what changed and stays correct even if a name changes later. Readable names are a good v2 addition, not worth a backend change in this frontend-only session.
+
+---
+
+## 83. Known limitation: the policies page shows when, not who
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** `PolicyResponse` has `updatedAt` but not who made the change, so the page shows only the time. The audit log has both.
+
+**Alternatives:** Add `updatedBy` to the response (a backend change).
+
+**Why:** The answer is already one click away in the audit log, so it doesn't justify a backend change now.
+
+---
+
+## 84. A results sheet loads every applicant, page by page
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** `useApi(url, { allPages: true })` calls `getAllPages`, which requests 100 rows at a time (the API's maximum) until it has them all. The results and selection pages use it.
+
+**Alternatives:** A paginated sheet with drafts kept across pages; or asking for a larger page size (a backend change).
+
+**Why:** Who can be on a sheet is worked out per row, so a page could look empty while the next one has students. One screen and one Save is clearer. A college drive has hundreds of applicants at most, so a few requests are fine.
+
+---
+
+## 85. Audit log dates are whole IST days
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** The filters are `<input type="date">` and the URL keeps plain days. `from` becomes that day's 00:00 IST. `to` becomes the next day's 00:00 IST, because the backend's `to` is exclusive. So the same day in both means that one whole day.
+
+**Alternatives:** Exact date-times with `datetime-local`; or sending plain days and converting on the backend (a backend change).
+
+**Why:** An admin asks "what happened on 4 Nov?", which means an Indian day, not a UTC one. India has no daylight saving, so adding 24 hours is always right, and the conversion reuses the existing IST helper.
+
+---
+
+## 86. Per-row errors stay in the top alert, with names added
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** Batch 400/409 lines say "Application 12 ...". `withStudentNames` adds the name and roll number to each line it can match. A line it can't match stays exactly as the backend wrote it.
+
+**Alternatives:** Show each message under its row; or look up the student by parsing more of the text.
+
+**Why:** After a failed save the page refetches, and a row can leave the sheet, which would also remove its message. The top alert never loses a line.
+
+---
+
+## 87. A shared useFormErrors hook; Policies Save stays enabled
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** Editing a field clears that field's error through one hook, used by every form with field errors. The generic "fix the highlighted fields" alert goes when none are left; a backend 409 stays until the next submit. Policies Save is no longer disabled when nothing changed: it says "No changes to save" instead. The results sheet's "choose a result" alert is worked out on every render, so a name leaves as soon as that row is fixed.
+
+**Alternatives:** Clear errors only in the Policies form; or clear all errors on any edit.
+
+**Why:** Found in the browser test: an invalid threshold, then the saved value again, left the error showing with Save disabled, so the form was stuck until a refresh. The pattern was in every form, though only Policies and the results sheet could actually get stuck. A 409 stays because it isn't about one field, and the admin may need it while fixing several rows.
+
+---
+
+## 88. Edit round is included, and adding a round asks first
+**Milestone:** 9 · **Date:** 2026-11-04
+
+**Decision:** The rounds page can edit a round's name and time, which you can change back, so that has no dialog. Adding a round has a confirm dialog. The round number is never typed: the frontend sends the next number.
+
+**Alternatives:** List and add only, as first specified; or a typed round number.
+
+**Why:** Rounds can't be deleted, so without edit a typo would be permanent. A new round also becomes the final one, which changes who can be selected, so that is worth a confirmation. The backend accepts only the next number, so typing it could only cause errors.

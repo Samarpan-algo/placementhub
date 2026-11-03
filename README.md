@@ -1,6 +1,6 @@
 # PlacementHub
 
-> Status: backend v1 features done (Milestones 1–7). Frontend (Milestones 8–9): login, student registration, role-based routing, and all student pages (dashboard, drives with eligibility and apply, my applications with withdraw and round tracking, profile), and admin pages for companies, drives (create/edit, open/close/complete) and applicants with CSV export. Rounds, results, policies, audit log and stats pages next (Milestone 9, Session C).
+> Status: backend v1 features done (Milestones 1–7). Frontend (Milestones 8–9): login, student registration, role-based routing, and all student pages (dashboard, drives with eligibility and apply, my applications with withdraw and round tracking, profile), and all admin pages: companies, drives (create/edit, open/close/complete), applicants with CSV export, rounds, bulk results, selection, placement policies, the audit log and stats. Resume upload is next (Milestone 10).
 
 ## Problem
 
@@ -148,10 +148,14 @@ All times are shown in IST.
 | New / edit drive | `/admin/drives/new`, `/admin/drives/{id}/edit` | `POST /api/drives`, `PUT /api/drives/{id}` (DRAFT or OPEN only) |
 | Drive detail + status actions | `/admin/drives/{id}` | `GET /api/drives/{id}`, `POST .../open`, `.../close`, `.../complete` |
 | Applicants + CSV export | `/admin/drives/{id}/applicants?status=&branch=&minCgpa=` | `GET /api/drives/{id}/applications`, `GET .../applications/export` |
+| Rounds (list, add, edit) | `/admin/drives/{id}/rounds` | `GET` / `POST /api/drives/{id}/rounds`, `PUT .../rounds/{roundId}` (OPEN or CLOSED) |
+| Bulk results | `/admin/drives/{id}/rounds/{roundId}/results` | `PUT .../rounds/{roundId}/results` (CLOSED only, all or nothing) |
+| Selection | `/admin/drives/{id}/selection` | `POST /api/drives/{id}/selections` (CLOSED only, all or nothing, no undo) |
+| Placement policies | `/admin/policies` | `GET /api/policies`, `PUT /api/policies/{type}` |
+| Audit log | `/admin/audit?entityType=&entityId=&from=&to=&page=2` | `GET /api/audit` |
+| Stats | `/admin` | `GET /api/stats` |
 
-The registration deadline is typed and shown in IST, whatever the computer's timezone.
-
-Rounds, results and final selection: see `POST /api/drives/{id}/rounds`, `PUT .../rounds/{roundId}/results` and `POST /api/drives/{id}/selections` (decisions 47–49).
+Times are typed and shown in IST, whatever the computer's timezone. The audit log's from and to are whole IST days (decision 85).
 
 ## Tests
 
@@ -189,8 +193,13 @@ Each one has a decision entry with the reasons and the planned fix.
 - **Drive date before the registration deadline** returns 409 instead of 400 (decision 78, fix in Milestone 11).
 - **Postman runs write to the dev database**, so test companies, drives and students pile up (decision 79, a separate test DB in Milestone 11).
 - The student dashboard's status counts cover the 100 most recent applications (decision 70).
+- **Results sheet:** there is no endpoint to read one round's results, so a student with a result in a later round is read-only on earlier sheets, and those earlier remarks can't be viewed or edited (decision 80).
+- **Selection has no preview:** a placement policy block appears only after you confirm, as a 409 naming each student (decision 81).
+- **The audit log shows IDs, not names,** for example "Application #12" (decision 82).
+- **Who changed a policy** is visible only in the audit log; the policies page shows when, not who (decision 83).
 
 ## Docs
 
 - [Design decisions](docs/decisions.md)
 - [Learning log](docs/learning-log.md)
+- [Milestone history](docs/milestone-history.md)

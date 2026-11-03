@@ -283,3 +283,18 @@ Short notes, in plain words, on what I learned in each milestone.
 - **Downloading a protected file.** A plain link can't send the Bearer token; axios with `responseType: 'blob'`, an object URL and a hidden `<a download>` can. The error body is a Blob too, so I read it as text to show the backend's message.
 - **JS can read only some response headers.** `Content-Disposition` (the filename) is visible to my code only because the backend's CORS config exposes it.
 - **Apply a typed filter on submit, not on every keystroke,** so "7." isn't sent half-typed. A `key` set to the URL value resets the box when filters are cleared.
+
+## Milestone 9, Session C: Rounds, results, selection, policies, audit, stats (2026-11-04)
+
+**What I built:**
+- Rounds page (list, add, edit), a bulk results sheet saved in one request, and a selection page behind a no-undo confirm dialog.
+- Policies page with one form per policy, an audit log with IST day filters and readable old → new fields, and stats tiles and tables on the admin home. No chart library and no backend changes. 461 tests, Postman 251/251.
+
+**What I learned:**
+- **Read the backend's rules before building the screen.** Which rows belong on a results sheet follows from its rules. Because a fail can't exist before a later result, the latest result alone tells me about all earlier rounds.
+- **Keep edits apart from server data.** Drafts live in their own state, so refetching after a failed save shows fresh data without losing what the admin typed.
+- **Send only what changed.** The confirm dialog can say "2 new, 1 correction", and an untouched row can't fail the save.
+- **Never drop an error line.** I add names to the lines I can match and leave the rest exactly as they were.
+- **"Inclusive end day" means an exclusive next-day start.** To include all of 4 Nov IST, I send `to` as 5 Nov 00:00 IST, because the backend's `to` is exclusive.
+- **A disabled button plus a stale error is a trap.** My own browser test found a form stuck until refresh: the error cleared only on submit, and submit was disabled. Fixing it in one shared hook fixed every form at once, which is why I checked the other forms instead of patching one.
+- **A custom hook shares logic, not looks.** `useFormErrors` holds no markup, only the state and the rule for clearing it.
