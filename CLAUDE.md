@@ -140,5 +140,6 @@ Each milestone lists what "done" means.
 
 ## Current status
 <!-- I'll update this line as I go -->
-Milestone 9 complete (on branch `milestone-9-frontend-pages`, not merged yet). Next: Milestone 10, resume upload.
-461 tests, Postman 251/251. What each milestone delivered: `docs/milestone-history.md`.
+Milestone 9 merged and pushed. Block A in progress on `milestone-10-12a-upload-tests-deployfiles`
+(M10 resume upload, M11 testing pass, M12 deploy files only, no actual deploy).
+At the end of M9: 461 tests, Postman 251/251. What each milestone delivered: `docs/milestone-history.md`.
