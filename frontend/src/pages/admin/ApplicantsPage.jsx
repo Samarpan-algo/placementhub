@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { downloadFile } from '../../api/download.js';
+import { openResume } from '../../api/resume.js';
 import { useApi } from '../../api/useApi.js';
 import EmptyState from '../../components/EmptyState.jsx';
 import ErrorAlert from '../../components/ErrorAlert.jsx';
@@ -111,6 +112,8 @@ export default function ApplicantsPage() {
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
+  const [openingResumeOf, setOpeningResumeOf] = useState(null);
+  const [resumeError, setResumeError] = useState(null);
 
   function changeParams(next) {
     const merged = { status, branch, minCgpa, page: 0, ...next };
@@ -120,6 +123,18 @@ export default function ApplicantsPage() {
     if (merged.minCgpa) params.minCgpa = merged.minCgpa;
     if (merged.page > 0) params.page = String(merged.page + 1);
     setSearchParams(params);
+  }
+
+  async function handleViewResume(studentId) {
+    setResumeError(null);
+    setOpeningResumeOf(studentId);
+    try {
+      await openResume(`/api/students/${studentId}/resume`);
+    } catch (apiError) {
+      setResumeError(apiError);
+    } finally {
+      setOpeningResumeOf(null);
+    }
   }
 
   async function handleExport() {
@@ -164,6 +179,7 @@ export default function ApplicantsPage() {
       </div>
       {/* The drive line above is only a label: if it fails to load, the list below still says why (e.g. 404) */}
       <ErrorAlert error={exportError} />
+      <ErrorAlert error={resumeError} />
 
       <div className="filter-bar">
         <div className="field">
@@ -236,6 +252,7 @@ export default function ApplicantsPage() {
                   <th>Applied</th>
                   <th>Status</th>
                   <th>Rounds</th>
+                  <th>Resume</th>
                 </tr>
               </thead>
               <tbody>
@@ -257,6 +274,20 @@ export default function ApplicantsPage() {
                     </td>
                     <td>
                       <Progress progress={applicant.progress} />
+                    </td>
+                    <td className="nowrap">
+                      {applicant.hasResume ? (
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => handleViewResume(applicant.studentId)}
+                          disabled={openingResumeOf === applicant.studentId}
+                        >
+                          {openingResumeOf === applicant.studentId ? 'Opening…' : 'Resume'}
+                        </button>
+                      ) : (
+                        <span className="muted">None</span>
+                      )}
                     </td>
                   </tr>
                 ))}
