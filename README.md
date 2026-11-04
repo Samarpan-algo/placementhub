@@ -159,13 +159,31 @@ Times are typed and shown in IST, whatever the computer's timezone. The audit lo
 
 ## Tests
 
+All tests use a separate database, `placementhub_test`, in the same Docker Postgres. Your dev database and the real resume bucket are never touched: the `test` profile (`application-test.yml`) fixes the database URL, uses port 8081, and keeps resumes in an in-memory fake.
+
+**Create the test database first** (once, with Docker running). `mvnw test` fails until it exists. The same command resets it at any time, and it can only affect `placementhub_test`:
+
 ```powershell
-cd backend
-.\mvnw.cmd test                 # unit, MockMvc and repository tests (needs the Docker Postgres running)
-npx newman run ..\postman\PlacementHub.postman_collection.json   # API tests, with the app running on :8080
+docker exec placementhub-postgres psql -U placementhub -d postgres -c "DROP DATABASE IF EXISTS placementhub_test WITH (FORCE)" -c "CREATE DATABASE placementhub_test"
 ```
 
-Repository tests (`*DbTest`) run against the local Docker Postgres inside a transaction that is rolled back, so your dev data is left unchanged. Moving them to a separate test database is planned for Milestone 11.
+**JUnit** (unit, MockMvc and repository tests):
+
+```powershell
+cd backend
+.\mvnw.cmd test
+```
+
+**Postman**, in two terminals. Start the app after a reset, because the tables are created when it starts:
+
+```powershell
+# Terminal 1: the app on the test database, port 8081
+cd backend
+.\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=test"
+
+# Terminal 2: the collection's default baseUrl is http://localhost:8081
+npx newman run postman\PlacementHub.postman_collection.json
+```
 
 ## Configuration
 
@@ -186,7 +204,9 @@ The frontend reads one build-time variable (see `frontend/.env.example`; put ove
 
 ## Known limitations
 
-Each one has a decision entry with the reasons and the planned fix.
+**Blocking before production: remove or replace the seeded demo accounts.** The demo seed creates an admin and students with the public password `Demo@1234`, and Flyway would run it on a production database too. See [docs/deploy.md](docs/deploy.md).
+
+Each of the others has a decision entry with the reasons and the planned fix.
 
 - **Company names:** uniqueness is case-insensitive in the service but the DB constraint is case-sensitive, so two simultaneous creates could store both "Nimbus" and "nimbus" (decision 16).
 - **Company dropdowns** on the drive pages list at most 100 companies, the API's maximum page size (decision 77).
