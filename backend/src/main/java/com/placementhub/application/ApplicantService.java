@@ -113,6 +113,7 @@ public class ApplicantService {
 				student.getActiveBacklogs(),
 				student.getGraduationYear(),
 				student.getPhone(),
+				student.getResumePath() != null,
 				progress);
 	}
 

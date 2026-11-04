@@ -97,7 +97,7 @@ placementhub/
 ```
 users             (id, email UNIQUE, password_hash, role, created_at)
 student_profiles  (id, user_id UNIQUE FK, full_name, roll_no UNIQUE, branch, graduation_year,
-                   cgpa NUMERIC(4,2), active_backlogs, phone, resume_url, updated_at)
+                   cgpa NUMERIC(4,2), active_backlogs, phone, resume_path, updated_at)
 companies         (id, name UNIQUE, website, description, created_at)
 drives            (id, company_id FK, role_title, job_type, ctc_lpa NUMERIC, location, description,
                    min_cgpa, max_backlogs, graduation_year, registration_deadline, drive_date,

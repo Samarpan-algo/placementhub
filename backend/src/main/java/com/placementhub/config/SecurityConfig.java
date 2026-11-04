@@ -49,6 +49,7 @@ public class SecurityConfig {
 						// /error is Spring's internal error page; keeping it public avoids masking errors as 401
 						.requestMatchers("/api/auth/**", "/api/health", "/error").permitAll()
 						.requestMatchers("/api/students/me/**").hasRole("STUDENT")
+						.requestMatchers("/api/students/*/resume").hasRole("TPO_ADMIN")
 						.requestMatchers("/api/companies/**", "/api/drives/**", "/api/policies/**", "/api/audit/**",
 								"/api/stats/**").hasRole("TPO_ADMIN")
 						.anyRequest().authenticated())

@@ -22,6 +22,7 @@ public record ApplicantResponse(
 		int activeBacklogs,
 		int graduationYear,
 		String phone,
+		boolean hasResume,
 		Progress progress) {
 
 	/**
