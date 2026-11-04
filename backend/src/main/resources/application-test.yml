@@ -1,0 +1,21 @@
+# The "test" profile: JUnit tests and Postman runs. It can never touch your dev data or the real bucket:
+#  - the database URL is written out here on purpose, so a DB_URL variable can't redirect it to dev
+#  - port 8081, so it can run next to the dev server on 8080
+#  - resumes go to an in-memory fake, never to Supabase
+#
+# Create or reset the database (the same docker Postgres, a separate database):
+#   docker exec placementhub-postgres psql -U placementhub -d postgres -c "DROP DATABASE IF EXISTS placementhub_test WITH (FORCE)" -c "CREATE DATABASE placementhub_test"
+# Run the app on it:
+#   .\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=test"
+server:
+  port: 8081
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/placementhub_test
+    username: placementhub
+    password: placementhub_dev
+
+app:
+  resume:
+    storage: fake

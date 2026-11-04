@@ -17,6 +17,7 @@ import com.placementhub.audit.AuditAction;
 import com.placementhub.audit.AuditEntityType;
 import com.placementhub.audit.AuditService;
 import com.placementhub.common.AppTime;
+import com.placementhub.common.BadRequestException;
 import com.placementhub.common.ConflictException;
 import com.placementhub.common.PageResponse;
 import com.placementhub.common.ResourceNotFoundException;
@@ -195,7 +196,7 @@ public class DriveService {
 	private static void checkDates(Drive drive) {
 		if (drive.getDriveDate() != null
 				&& drive.getDriveDate().isBefore(drive.getRegistrationDeadline().atZone(AppTime.IST).toLocalDate())) {
-			throw new ConflictException("Drive date cannot be before the registration deadline");
+			throw new BadRequestException("Drive date cannot be before the registration deadline");
 		}
 	}
 
