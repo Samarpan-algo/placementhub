@@ -88,4 +88,11 @@ class AuthApiTest extends ApiTestBase {
 				.andExpectAll(errorJson(404, "/api/no-such-endpoint"));
 	}
 
+	@Test
+	void healthIsPublic() throws Exception {
+		mvc.perform(get("/api/health"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("UP"));
+	}
+
 }

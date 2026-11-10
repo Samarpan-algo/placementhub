@@ -1,0 +1,47 @@
+# The "prod" profile: the deployed backend. Activated by SPRING_PROFILES_ACTIVE=prod, which the
+# Dockerfile sets. Every value without a default is REQUIRED: the app refuses to start without it.
+# All variables are listed in docs/deploy.md.
+
+spring:
+  datasource:
+    # Supabase session pooler, JDBC form: jdbc:postgresql://<pooler-host>:5432/postgres
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      # Small pool: Supabase's free tier allows only a few connections through the pooler
+      maximum-pool-size: 5
+      minimum-idle: 1
+      idle-timeout: 120000      # 2 min
+      max-lifetime: 300000      # 5 min: recycle before the pooler drops idle connections
+      connection-timeout: 10000
+      data-source-properties:
+        # Encrypted connection required. DB_SSLMODE exists only for a local check against a
+        # database without SSL; never set it on Render.
+        sslmode: ${DB_SSLMODE:require}
+
+  flyway:
+    # Schema and reference data only. The demo seed (db/demo) never runs here.
+    locations: classpath:db/migration
+
+server:
+  tomcat:
+    threads:
+      max: 30   # a small free instance; each thread costs memory
+
+app:
+  jwt:
+    # No dev fallback: a missing JWT_SECRET stops the app at startup.
+    allow-dev-secret: false
+
+  cors:
+    # The deployed frontend's origin, e.g. https://<your-app>.vercel.app (no trailing slash)
+    allowed-origins: ${CORS_ALLOWED_ORIGINS}
+
+  resume:
+    storage: supabase
+
+  admin:
+    # Used once, to create the first TPO admin when none exists (AdminBootstrap). Never logged.
+    email: ${ADMIN_EMAIL:}
+    password: ${ADMIN_PASSWORD:}

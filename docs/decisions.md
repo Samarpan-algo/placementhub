@@ -1655,7 +1655,7 @@ A 401 from `/api/auth/login` means a wrong email or password, so the login page 
 
 ---
 
-## 104. Blocking before production: the seeded demo accounts
+## 104. Blocking before production: the seeded demo accounts (resolved in Block B, decisions 105-107)
 **Milestone:** 12 · **Date:** 2026-11-04
 
 **Decision:** Not fixed in Block A. Recorded as a **blocking** item in `docs/deploy.md` and in the README's known limitations.
@@ -1663,3 +1663,89 @@ A 401 from `/api/auth/login` means a wrong email or password, so the login page 
 **The problem:** `V2__seed_demo_data.sql` creates `admin@placementhub.dev` and demo students with the password `Demo@1234`, which is public in this repository. Flyway runs it on every new database, production included.
 
 **Why not now:** Fixing it changes how seeding works (for example, demo data only in a dev profile, and the first admin from environment variables), which is outside Block A's scope. The deploy step must fix and verify it: the seeded admin login must fail on the live site.
+
+---
+
+## 105. The demo seed runs only in dev and test; policies are reference data (V5)
+**Milestone:** 12 · **Date:** 2026-11-10
+
+**Decision:**
+- All data lived in `V2__seed_demo_data.sql`; V1, V3 and V4 are schema only.
+- V2 moved **byte for byte** to `db/demo/`, a Flyway location only the `dev` and `test` profiles read.
+- The three `placement_policies` rows, which every environment needs, are now also in a new **V5** in `db/migration`: all **inactive**, `updated_by` NULL, and `ON CONFLICT (type) DO NOTHING` (V1's `uq_placement_policies_type`).
+- The base config and `application-prod.yml` read only `db/migration`. `ProfileConfigTest` guards both.
+
+**Alternatives:**
+- Editing V2 to remove the policies. That changes its checksum, so every existing dev DB would fail validation.
+- A Flyway callback or a Java seeder for demo data.
+- Deleting demo rows in a prod-only migration.
+
+**Why:** Flyway validates applied migrations by checksum. An unchanged file in a different folder is still "the same V2" for a dev DB, which a copy of the real dev DB confirmed. V5 then adds the policies where V2 never ran (production) and changes nothing where it did. Production starts with every policy off, because which policies apply is the college's decision.
+
+**Known limitation:** `db/demo` and `db/migration` share one version sequence. A future demo migration needs a version number not used in `db/migration`, and V2 can never be edited.
+
+---
+
+## 106. Profiles: `dev` by default locally, `prod` by default in the Docker image
+**Milestone:** 12 · **Date:** 2026-11-10
+
+**Decision:** `spring.profiles.default: dev`, so a plain `mvnw spring-boot:run` is dev (demo seed, dev JWT fallback). The Dockerfile sets `ENV SPRING_PROFILES_ACTIVE=prod`. Tests use `test`.
+
+**Alternatives:** Demo data on by default, with prod opting out; requiring `SPRING_PROFILES_ACTIVE=prod` to be set on Render.
+
+**Why:** The safe behaviour must not depend on remembering a variable. A container built from this repo is production unless told otherwise, and the prod profile refuses to start without its secrets.
+
+---
+
+## 107. The first TPO admin comes from ADMIN_EMAIL and ADMIN_PASSWORD (prod only)
+**Milestone:** 12 · **Date:** 2026-11-10
+
+**Decision:** `AdminBootstrap` (an `ApplicationRunner`, prod profile only, after Flyway) calls `AdminBootstrapService.ensureAdmin`.
+- **An admin exists:** it does nothing and logs "skipping", so it is safe on every restart.
+- **No admin:** both variables are required. The email must be valid and unused, and the password 8 to 72 characters (the registration rules). The password is stored as a BCrypt hash.
+- **Any problem stops startup**, with a message that never contains the password. The log shows only the email.
+
+**Alternatives:**
+- An admin row in a prod migration, which puts a password hash in Git.
+- A one-time setup page, which anyone could reach first.
+- A manual SQL insert.
+
+**Why:** It needs no new endpoint, and no secret ever reaches the repository. Failing at startup is better than a live app nobody can administer.
+
+**Known limitation:** changing `ADMIN_PASSWORD` later does **not** change the existing admin's password; v1 has no password change. After the first start, the variables can be deleted from Render.
+
+---
+
+## 108. The prod profile: required secrets, SSL, a small pool, a small JVM
+**Milestone:** 12 · **Date:** 2026-11-10
+
+**Decision:** `application-prod.yml`:
+- `app.jwt.allow-dev-secret: false`: no `JWT_SECRET` means no startup (the length check stays).
+- `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` and `CORS_ALLOWED_ORIGINS` have no defaults.
+- `sslmode=require` is set as a driver property, so it applies whatever `DB_URL` says. `DB_SSLMODE` exists only for local checks.
+- Hikari pool of at most 5 connections, minimum 1 idle, connections recycled after 5 minutes, for Supabase's session pooler.
+- Tomcat limited to 30 threads.
+- Resume storage is always Supabase.
+- The Dockerfile sets `JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=60 -XX:+UseSerialGC -Xss512k -XX:MaxMetaspaceSize=150m` for a 512 MB instance; Render can override it.
+- `/api/health` stays public, and an API test now asserts it.
+
+**Alternatives:** Keeping the dev JWT fallback with only a warning; putting `?sslmode=require` in the documented URL; default JVM settings.
+
+**Why:** A production app with a public JWT secret lets anyone forge an admin token. A warning in a log nobody reads isn't enough. Forcing SSL in config means a copied URL can't turn it off. The JVM's defaults assume a machine it can fill, and on a small instance that ends in out-of-memory restarts.
+
+**Verified locally**, on a throwaway database:
+- It fails without `JWT_SECRET`, with SSL required (local Postgres has no SSL), and on a new DB without `ADMIN_*`.
+- With everything set, the history has no V2, the only user is the env admin, and there are 3 inactive policies (also through `GET /api/policies`).
+- The demo login gets 401, and CORS allows only the configured origin.
+- A restart is idempotent, and the password appears in no log.
+
+**Known limitation:** the SSL connection itself is first exercised against Supabase at deploy time.
+
+---
+
+## 109. CI actions on Node 24
+**Milestone:** 12 · **Date:** 2026-11-10
+
+**Decision:** `actions/checkout@v7`, `actions/setup-java@v6`, `actions/setup-node@v7`. Each one's `action.yml` declares `using: node24`.
+
+**Why:** It clears GitHub's Node 20 deprecation warnings before Node 20 runners are removed.

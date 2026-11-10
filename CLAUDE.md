@@ -139,8 +139,7 @@ Each milestone lists what "done" means.
     - Optional: a k6 load test with real numbers.
 
 ## Current status
-<!-- I'll update this line as I go -->
-Block A complete on `milestone-10-12a-upload-tests-deployfiles` (M10 resume upload, M11 testing pass,
-M12 deploy files only; not merged yet). Next: the rest of M12, the actual deployment. Blocking first:
-remove or replace the seeded demo accounts (decision 104, docs/deploy.md).
-577 tests, Postman 290/290 (on the test DB). What each milestone delivered: `docs/milestone-history.md`.
+Block B part 1 (production safety) complete on `milestone-12-deploy`: demo seed only in dev/test, V5 policies,
+env-var TPO admin, `prod` profile, CI on Node 24, deploy runbook. Next: Block B part 2, the actual deployment
+following `docs/deploy.md`. 601 tests, Postman 290/290 (on the test DB).
+What each milestone delivered: `docs/milestone-history.md`.

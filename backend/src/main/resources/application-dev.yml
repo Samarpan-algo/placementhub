@@ -1,0 +1,10 @@
+# The "dev" profile: local development. Active by default (spring.profiles.default in application.yml),
+# so a plain `mvnw spring-boot:run` uses it.
+#
+# db/demo holds the demo seed (demo admin, students, companies, drives; password Demo@1234).
+# It must NEVER run in production, which reads only db/migration.
+# Never edit a file in db/demo or db/migration once applied: Flyway checks their checksums.
+# A new demo migration needs a version number not used in db/migration (they share one sequence).
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/demo

@@ -8,6 +8,9 @@ import java.time.Duration;
 import javax.crypto.SecretKey;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class JwtConfigTest {
 
@@ -28,9 +31,41 @@ class JwtConfigTest {
 
 	@Test
 	void missingSecretFallsBackToTheDevOnlyDefault() {
-		SecretKey key = new JwtConfig().jwtSigningKey(new JwtProperties("", Duration.ofHours(2), "placementhub"));
+		SecretKey key = new JwtConfig().jwtSigningKey(new JwtProperties("", Duration.ofHours(2), "placementhub"), true);
 
 		assertThat(key.getEncoded()).isEqualTo(JwtConfig.DEV_ONLY_SECRET.getBytes());
+	}
+
+	// ---------- the prod profile: allow-dev-secret = false ----------
+
+	@ParameterizedTest
+	@NullAndEmptySource
+	@ValueSource(strings = "   ")
+	void inProductionAMissingSecretStopsTheApp(String secret) {
+		JwtProperties properties = new JwtProperties(secret, Duration.ofHours(2), "placementhub");
+
+		assertThatThrownBy(() -> new JwtConfig().jwtSigningKey(properties, false))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessage(JwtConfig.MISSING_SECRET_MESSAGE);
+	}
+
+	@Test
+	void inProductionAShortSecretStillStopsTheApp() {
+		JwtProperties properties = new JwtProperties("too-short", Duration.ofHours(2), "placementhub");
+
+		assertThatThrownBy(() -> new JwtConfig().jwtSigningKey(properties, false))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageStartingWith("JWT_SECRET must be at least 32 bytes");
+	}
+
+	@Test
+	void inProductionARealSecretIsUsedAsIs() {
+		String secret = "a-real-production-secret-of-48-bytes-xxxxxxxxxxx";
+
+		SecretKey key = new JwtConfig().jwtSigningKey(new JwtProperties(secret, Duration.ofHours(2), "placementhub"),
+				false);
+
+		assertThat(key.getEncoded()).isEqualTo(secret.getBytes());
 	}
 
 }
