@@ -56,7 +56,7 @@ Also note the **Project URL** (`https://<project-ref>.supabase.co`) and the **se
    |---|---|
    | Name | `<placementhub-api>` (it becomes part of the URL) |
    | Branch | `main` |
-   | Region | the one closest to your Supabase region |
+   | Region | the one closest to your Supabase region (Render has no Sydney: for Supabase `ap-southeast-2` choose **Singapore**). It can't be changed later without a new service |
    | Root Directory | `backend` |
    | Language / Runtime | **Docker** (Render finds `backend/Dockerfile`) |
    | Instance type | Free |
@@ -76,10 +76,10 @@ Also note the **Project URL** (`https://<project-ref>.supabase.co`) and the **se
    | `SUPABASE_SECRET_KEY` | `<supabase-secret-key>` | full access to the bucket. **Backend only**: never in Vercel, never in the frontend |
    | `SUPABASE_RESUME_BUCKET` | `resumes` | the bucket's name |
 
-   **Do not add** `SPRING_PROFILES_ACTIVE` (the Docker image already runs as `prod`), `PORT` (Render sets it), or `DB_SSLMODE` (local checks only). `JWT_EXPIRY` is optional (default `PT2H`, 2 hours).
+   **Do not add** `SPRING_PROFILES_ACTIVE` (the Docker image already runs as `prod`), `PORT` (Render sets it), or `DB_SSLMODE` (local checks only). `JWT_EXPIRY` is optional (default `PT2H`, 2 hours). The two `SPRING_FLYWAY_...` variables are needed only in one case, see [First start on a Supabase database](#first-start-on-a-supabase-database).
 
 4. Open **Advanced** and set **Health Check Path** to `/api/health`.
-5. Click **Create Web Service** (or **Deploy**). The first build takes several minutes.
+5. Click **Create Web Service** (or **Deploy**). The first build takes several minutes. On the free instance **every** deploy (also "Save and deploy" after an environment change) takes about 10 minutes: the app needs about 2 minutes to start, then the deploy stays **In progress** ("Waiting for internal health check") until Render switches traffic over. Meanwhile the old instance keeps serving, so the site stays up. Wait for **Live**; only after about 15 minutes without it is something wrong.
 6. Watch **Logs**. A good start shows, in this order:
    - `The following 1 profile is active: "prod"`
    - Flyway migrating to version 5
@@ -96,6 +96,28 @@ If it stops instead, the last lines say why. The usual ones:
 | `set ADMIN_EMAIL and ADMIN_PASSWORD` | the database has no admin yet: add both |
 | `password authentication failed` / `Tenant or user not found` | `DB_USERNAME` must be `postgres.<project-ref>`; check `DB_PASSWORD` |
 | `Connection refused` / timeout to the database | use the **session pooler** host from step (a), port 5432 |
+| `Found non-empty schema(s) "public" but no schema history table` | Supabase put a function in `public`: see the next section |
+
+### First start on a Supabase database
+
+New Supabase projects can create the function `public.rls_auto_enable` and an event trigger that turns on Row Level Security for every new table in `public`. Flyway sees that function, finds `public` "not empty" without its history table, and refuses to run (the log line in the table above).
+
+**Keep the function.** It only *enables* RLS (it doesn't force it). The tables belong to `postgres`, the user the backend logs in as, and an owner bypasses non-forced RLS, so the app works normally. Meanwhile Supabase's Data API (anon/publishable key) can't read our tables, which is a free security bonus. Check it in the SQL Editor:
+
+```sql
+select pg_get_functiondef('public.rls_auto_enable'::regproc);  -- expect "enable row level security", not "force"
+```
+
+**Fix, for the first start only.** Add these two variables on Render (Environment), then **Save and deploy**:
+
+| Name | Value |
+|---|---|
+| `SPRING_FLYWAY_BASELINEONMIGRATE` | `true` |
+| `SPRING_FLYWAY_BASELINEVERSION` | `0` |
+
+Flyway then records a baseline at version **0** and runs every migration after it (1, 3, 4, 5); the log shows `Successfully baselined schema with version: 0` and `Successfully applied 4 migrations`. Don't set only `BASELINEONMIGRATE`: its default baseline version is 1, which would mark V1 as applied and **skip creating the tables**.
+
+**After the first successful start, delete both variables** and **Save and deploy**. `flyway_schema_history` exists now, so they would do nothing, but leaving them is a trap: pointed at a wrong, non-empty database, they would make Flyway run on top of it instead of stopping.
 
 After the first successful start the admin exists and the app no longer needs `ADMIN_PASSWORD`. You can delete `ADMIN_EMAIL` and `ADMIN_PASSWORD` from Render then (Render redeploys). Changing them later does **not** change the existing admin's password.
 
@@ -125,8 +147,14 @@ After the first successful start the admin exists and the app no longer needs `A
 
 1. Render → your service → **Environment**.
 2. Edit `CORS_ALLOWED_ORIGINS` to exactly the Vercel URL: `https://<your-app>.vercel.app`. No trailing slash, no path. Several origins: comma-separated.
-3. **Save Changes** and let Render redeploy (or use **Manual Deploy → Deploy latest commit**).
-4. Wait for the log to show `Tomcat started` again.
+3. **Save Changes** and choose **Save and deploy** (no rebuild needed: the code didn't change).
+4. Wait until the deploy shows **Live** (about 10 minutes on the free instance, see step (b)). Until then the old instance, with the old value, still answers, so CORS errors in that window are expected.
+
+Check it from PowerShell: the answer must contain `access-control-allow-origin: https://<your-app>.vercel.app`.
+
+```powershell
+curl.exe -s -o NUL -D - -X OPTIONS https://<placementhub-api>.onrender.com/api/auth/login -H "Origin: https://<your-app>.vercel.app" -H "Access-Control-Request-Method: POST"
+```
 
 If you change `VITE_API_BASE_URL` on Vercel later, redeploy on Vercel; if the Vercel URL changes, repeat this step.
 
