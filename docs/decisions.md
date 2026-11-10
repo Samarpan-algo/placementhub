@@ -1329,7 +1329,7 @@ A 401 from `/api/auth/login` means a wrong email or password, so the login page 
 
 ---
 
-## 78. Known limitation (fix in Milestone 11): "drive date before the deadline" returns 409, not 400
+## 78. Known limitation (resolved in Milestone 11, decision 99): "drive date before the deadline" returned 409, not 400
 **Milestone:** 9 · **Date:** 2026-11-04
 
 **Decision:** `DriveService.checkDates` throws `ConflictException`, so this input error is a 409. The frontend checks the same rule first, so admins rarely see it. Not changed in Session B (frontend only).
@@ -1340,7 +1340,7 @@ A 401 from `/api/auth/login` means a wrong email or password, so the login page 
 
 ---
 
-## 79. Known limitation (fix in Milestone 11): Postman runs write to the dev database
+## 79. Known limitation (resolved in Milestone 11, decision 98): Postman runs wrote to the dev database
 **Milestone:** 9 · **Date:** 2026-11-04
 
 **Decision:** the Postman collection runs against the normal dev database, so every run leaves test companies, drives, students, applications and audit rows behind (one run on 2026-11-04 added 2 companies, 5 drives, 7 users and 8 applications; one dev DB had reached 54 drives).
@@ -1447,3 +1447,219 @@ A 401 from `/api/auth/login` means a wrong email or password, so the login page 
 **Alternatives:** List and add only, as first specified; or a typed round number.
 
 **Why:** Rounds can't be deleted, so without edit a typo would be permanent. A new round also becomes the final one, which changes who can be selected, so that is worth a confirmation. The backend accepts only the next number, so typing it could only cause errors.
+
+---
+
+## 89. Block A: one branch for Milestones 10, 11 and the files of 12
+**Milestone:** 10–12 · **Date:** 2026-11-04
+
+**Decision:** Resume upload (M10), the testing pass (M11) and the deploy files of M12 were built on one branch, `milestone-10-12a-upload-tests-deployfiles`, with small commits per part. The actual deployment (accounts, live URLs) is a separate later step.
+
+**Alternatives:** One branch per milestone, as in M1–M9.
+
+**Why:** The three parts depend on each other. M11's tests cover M10's endpoints, and M12's CI runs M11's test database setup. One branch let them be built and checked in one long session without merging three times. The commit messages still keep the parts apart.
+
+---
+
+## 90. Resume storage behind an interface, Supabase through its REST API
+**Milestone:** 10 · **Date:** 2026-11-04
+
+**Decision:**
+- The app knows only `ResumeStorage` (`upload`, `signedUrl`, `delete`).
+- **`SupabaseResumeStorage`** calls Supabase Storage's REST API with Spring's own `RestClient`, with 3 s connect and 15 s read timeouts. There is no SDK and no new dependency.
+- **`FakeResumeStorage`** keeps files in memory.
+- `app.resume.storage` (`supabase` by default, `fake` in the `test` profile) picks the implementation with `@ConditionalOnProperty`.
+- The fake lives in main code, because Postman runs against the real app, not the test classpath.
+
+**Alternatives:** The Supabase Java SDK; mocking the HTTP client in every test; local disk.
+
+**Why:** The interface keeps Supabase out of the services, and lets every test and Postman run use the fake, so nothing ever writes to the real bucket by accident. The REST API needs three calls, so an SDK wasn't worth a new dependency. Local disk is out of scope: Render's disk is wiped on every deploy.
+
+---
+
+## 91. The database stores the file's path, and viewing uses a 5-minute signed link
+**Milestone:** 10 · **Date:** 2026-11-04
+
+**Decision:**
+- The `resumes` bucket is **private**.
+- Each file is stored at `students/{studentId}/{uuid}.pdf`, so the student's own file name is never used.
+- `V4` renames `resume_url` to `resume_path`, which holds that path.
+- `GET /api/students/me/resume` (the student) and `GET /api/students/{id}/resume` (admin) return `{url, expiresInSeconds: 300}`, a link Supabase signs for 5 minutes.
+- Responses show only `hasResume`, never the path.
+
+**Alternatives:** A public bucket with stored public URLs; the backend downloading the file and streaming it to the browser.
+
+**Why:** Resumes hold phone numbers and addresses, so a public URL that works forever is a privacy leak. A signed link expires and is handed out only after the backend's role and ownership checks. Streaming through the backend would also work, but it costs memory and Render bandwidth for no benefit in v1.
+
+---
+
+## 92. Upload rules: PDF by content type AND first bytes, at most 2 MB, every failure a 400
+**Milestone:** 10 · **Date:** 2026-11-04
+
+**Decision:**
+- `ResumeFileValidator` rejects a missing or empty file, more than 2 MB, a content type other than `application/pdf` (any case, any parameters), or bytes that don't start with `%PDF`.
+- Spring itself rejects an oversized upload before the controller (`spring.servlet.multipart.max-file-size: 2MB`). The global handler turns `MaxUploadSizeExceededException` into the same 400 JSON, and the other multipart errors (not multipart, wrong field name) too.
+- `server.tomcat.max-swallow-size: 50MB` makes Tomcat read the rest of a too-large request, so the browser receives that 400 instead of a dropped connection.
+- The Profile page checks type and size first, so most mistakes never reach the server.
+
+**Alternatives:** Trusting the content type; 413 for a too-large file.
+
+**Why:** The browser decides the content type from the file name, so a renamed text file claims to be a PDF; the first bytes can't be faked that way. 400 for too-large keeps one status for "your file is wrong", as asked.
+
+---
+
+## 93. Upload order: store the new file, swap the path under a row lock, then delete the old file
+**Milestone:** 10 · **Date:** 2026-11-04
+
+**Decision:** `ResumeService.uploadForCurrentStudent` is **not** `@Transactional`:
+1. Validate the file and find the student.
+2. Upload the new object. If that fails, the DB is untouched and the old resume stays.
+3. In a short transaction (`ResumeRecords.replacePath`), lock the student's row, read the old path, save the new one and commit. If this fails, the new object is deleted again.
+4. Delete the old object. If that fails, the upload still succeeds and a warning is logged.
+
+**Alternatives:** One transaction around everything; deleting the old file first.
+
+**Why:** A transaction can't roll back a file in Supabase. Holding a DB connection and a row lock during a slow network call would also block applies for that student, because apply locks the same row. With this order, the DB never points at a missing file. The row lock makes two uploads at once take turns: the second sees the first one's file as "old" and deletes it.
+
+---
+
+## 94. Storage failures: 502 or 503 with our own message, and a missing configuration is not a startup failure
+**Milestone:** 10 · **Date:** 2026-11-04
+
+**Decision:**
+- Supabase answers with an error, or with something we can't read: **502** "The resume storage service returned an error".
+- No answer, a timeout, or missing `SUPABASE_*` values: **503** "...is unavailable".
+- Both use `ExternalServiceException` and the standard error JSON.
+- Logs record the operation and HTTP status only, never the key, a signed URL or Supabase's response body. `ResumeProperties.Supabase.toString()` hides the key.
+
+**Alternatives:** Passing Supabase's error through; refusing to start without the Supabase values.
+
+**Why:** Supabase's error text is internal detail, and it can name the bucket and paths. 502 vs 503 tells an operator "they answered badly" vs "they didn't answer". Starting without the values (with a warning) lets someone clone the repo and run everything except resumes, the same approach as the dev JWT fallback.
+
+---
+
+## 95. Who can view a resume: the student through `/me`, an admin by student id
+**Milestone:** 10 · **Date:** 2026-11-04
+
+**Decision:** `/api/students/me/resume` is STUDENT only, and the student comes from the token, so a student reaches only their own file. `/api/students/{id}/resume` is TPO_ADMIN only and works for any student, not only those who applied to a drive. In the browser, the admin opens it from the applicants list.
+
+**Alternatives:** Require the student to have at least one application.
+
+**Why:** The TPO already oversees every student, so the extra rule protects nothing and costs a query. Students can't guess another student's id into anything, because the id route is admin only (403).
+
+---
+
+## 96. Resume uploads are not audited
+**Milestone:** 10 · **Date:** 2026-11-04
+
+**Decision:** No audit row for uploads or replacements.
+
+**Alternatives:** A new `STUDENT_PROFILE` entity type and `RESUME_UPLOADED` action.
+
+**Why:** The audit log records decisions that can be disputed, such as criteria edits, status changes, results and policies, mostly made by the TPO. A student replacing their own file is not one of those. Auditing it would need new DB constraint values and new labels on the audit page, for little value. `updated_at` still shows when the profile last changed.
+
+---
+
+## 97. The backend imports the root `.env` in local dev
+**Milestone:** 10 · **Date:** 2026-11-04
+
+**Decision:**
+- `application.yml` has `spring.config.import: optional:file:.env[.properties],optional:file:../.env[.properties]`, so `SUPABASE_*` (and `JWT_SECRET`, if you add it) come from the same `.env` that Docker Compose uses.
+- There are two paths because the app may start from `backend/` or the repo root. The `optional:` prefix means there's no error when the file is missing, as on CI and Render.
+- Real environment variables still win.
+- `JWT_SECRET` is commented out in `.env.example`, otherwise copying the example would silently sign tokens with a public value.
+
+**Alternatives:** Setting `$env:` variables by hand in each terminal; a dotenv library.
+
+**Why:** It needs no new tool and no extra steps: the values are already in `.env`. The cost: `.env` lines are read as Java properties, so a backslash in a value would need escaping.
+
+---
+
+## 98. A separate test database through a `test` profile (resolves decision 79)
+**Milestone:** 11 · **Date:** 2026-11-04
+
+**Decision:**
+- `application-test.yml` points at `placementhub_test` in the same Docker Postgres, with the URL **written out** so `DB_URL` can't redirect it.
+- It uses port **8081**, so it can run next to the dev server, and the fake resume storage.
+- `@PostgresTest`, `@ApiTest` and the context test activate it.
+- The Postman collection's default `baseUrl` is now 8081.
+- One `docker exec ... DROP DATABASE ... WITH (FORCE)` / `CREATE DATABASE` command resets it. It names `placementhub_test`, so it can't touch dev data.
+- `TestIsolationTest` fails if the tests ever run against another database, or with real storage.
+
+**Alternatives:** Testcontainers (a new tool); a second Postgres container in docker-compose; cleanup requests at the end of the Postman collection.
+
+**Why:** It needs no new tools and only one extra database. Making the safe choice the default (port 8081, a fixed URL, a guard test) matters more than documenting it.
+
+---
+
+## 99. "Drive date before the deadline" is a 400 (resolves decision 78)
+**Milestone:** 11 · **Date:** 2026-11-04
+
+**Decision:** `DriveService.checkDates` throws `BadRequestException`, with the same message. Unit tests, an API test, and a new Postman request expect 400.
+
+**Why:** It is invalid input, not a clash with the current state (decision 78).
+
+---
+
+## 100. API tests check the HTTP contract, not the business rules again
+**Milestone:** 11 · **Date:** 2026-11-04
+
+**Decision:**
+- `@ApiTest` classes run the whole app (real security, services and test DB) through MockMvc, with each test rolled back.
+- They cover 201/400/401/403/404/409 (plus 422, 502 and 503) for auth, drives, apply/withdraw, policies, results/selection and resume. They check the status, the error JSON shape (with no `trace`), and role and ownership rules.
+- Business rules stay in the unit tests.
+- The size limit can be tested only with a real web server, so `ResumeUploadLimitTest` starts one on a random port and sends 3 MB and 20 MB bodies.
+
+**Alternatives:** One test per rule at the HTTP level; mocked services.
+
+**Why:** Unit tests already cover every rule. What they can't see is the HTTP layer: filters, exception handlers, JSON and status codes. Mocked services would miss bugs between the layers, such as the security path matcher in decision 95.
+
+---
+
+## 101. CI: backend tests with a Postgres service, then the frontend build
+**Milestone:** 12 · **Date:** 2026-11-04
+
+**Decision:** `.github/workflows/ci.yml` runs on every push and pull request.
+- **Backend job:** a `postgres:17` service with the exact database, user and password the `test` profile expects, then `./mvnw -B test`.
+- **Frontend job:** `npm ci` and `npm run build`.
+- No secrets are used, because the test profile uses the fake storage.
+- `mvnw` is now committed as executable.
+
+**Alternatives:** Skipping the repository tests in CI; Testcontainers.
+
+**Why:** The repository tests need real PostgreSQL (native SQL, JSONB), and a service container is the simplest way to get it in GitHub Actions.
+
+---
+
+## 102. Deploy files: a multi-stage Dockerfile, `PORT`, and a Vercel rewrite
+**Milestone:** 12 · **Date:** 2026-11-04
+
+**Decision:**
+- `backend/Dockerfile` builds with the JDK and Maven wrapper, skipping tests because CI runs them. It runs the jar on a JRE as a non-root user.
+- `.dockerignore` keeps `.env` and `target/` out.
+- `server.port: ${PORT:8080}`, because Render sets `PORT`.
+- `frontend/vercel.json` sends every path to `index.html`, so deep links like `/admin/drives/5` survive a refresh.
+- `docs/deploy.md` lists every variable with placeholders.
+- Checked locally only: the image built, started against the test DB, and reported UP.
+
+**Why:** It is the smallest set of files that makes the next step (creating the accounts and deploying) only configuration.
+
+---
+
+## 103. Known limitations of resume storage
+**Milestone:** 10 · **Date:** 2026-11-10
+
+- **An old link can still open a replaced resume.** The real-Supabase smoke test showed the old object really is deleted (an authenticated read fails), yet the old signed link was still served, from Supabase's CDN cache (`cf-cache-status: HIT`). How long that lasts wasn't measured. Links are issued only after the role checks and are never stored, but anyone who already had one may still see the old file.
+- **Orphan files:** if deleting the old file fails (decision 93), it stays in the bucket with nothing pointing at it. There is no cleanup job in v1.
+- **No delete:** a student can replace their resume but can't remove it.
+
+---
+
+## 104. Blocking before production: the seeded demo accounts
+**Milestone:** 12 · **Date:** 2026-11-04
+
+**Decision:** Not fixed in Block A. Recorded as a **blocking** item in `docs/deploy.md` and in the README's known limitations.
+
+**The problem:** `V2__seed_demo_data.sql` creates `admin@placementhub.dev` and demo students with the password `Demo@1234`, which is public in this repository. Flyway runs it on every new database, production included.
+
+**Why not now:** Fixing it changes how seeding works (for example, demo data only in a dev profile, and the first admin from environment variables), which is outside Block A's scope. The deploy step must fix and verify it: the seeded admin login must fail on the live site.

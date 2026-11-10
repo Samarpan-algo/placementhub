@@ -1,6 +1,6 @@
 # PlacementHub
 
-> Status: backend v1 features done (Milestones 1–7). Frontend (Milestones 8–9): login, student registration, role-based routing, and all student pages (dashboard, drives with eligibility and apply, my applications with withdraw and round tracking, profile), and all admin pages: companies, drives (create/edit, open/close/complete), applicants with CSV export, rounds, bulk results, selection, placement policies, the audit log and stats. Resume upload is next (Milestone 10).
+> Status: backend v1 features done (Milestones 1–7). Frontend (Milestones 8–9): login, student registration, role-based routing, and all student pages (dashboard, drives with eligibility and apply, my applications with withdraw and round tracking, profile), and all admin pages: companies, drives (create/edit, open/close/complete), applicants with CSV export, rounds, bulk results, selection, placement policies, the audit log and stats. Block A (Milestones 10–12a): resume upload to a private Supabase bucket, a separate test database with API tests, and deploy files (Dockerfile, CI, [deploy reference](docs/deploy.md)). The actual deployment is next.
 
 ## Problem
 
@@ -37,10 +37,9 @@ Copy-Item .env.example .env
 docker compose up -d
 docker compose ps
 
-# 3. Start the backend
-#    Optional locally: set a JWT signing secret (at least 32 bytes). Without it the app uses a
-#    DEV-ONLY secret and logs a WARNING at startup. Always set it outside your own machine.
-$env:JWT_SECRET = "paste-a-random-secret-of-at-least-32-bytes-here"
+# 3. Start the backend. It also reads .env (SUPABASE_* for resumes, JWT_SECRET if you add one).
+#    Without JWT_SECRET it uses a DEV-ONLY secret and logs a WARNING. Always set it outside your own machine.
+#    Without the SUPABASE_* values everything works except resumes, which answer 503.
 cd backend
 .\mvnw.cmd spring-boot:run
 ```
@@ -135,7 +134,7 @@ The Postman collection (`postman/`) logs in automatically: run the **Auth** fold
 | Drive detail + Apply | `/student/drives/{id}` | `GET /api/students/me/drives/{id}` (OPEN drives, or ones you applied to), `POST /api/students/me/applications` |
 | My applications + Withdraw | `/student/applications` | `GET /api/students/me/applications`, `POST .../applications/{id}/withdraw` |
 | Application detail (rounds) | `/student/applications/{id}` | `GET /api/students/me/applications/{id}` |
-| Profile | `/student/profile` | `GET` / `PUT /api/students/me` (name and phone only) |
+| Profile + Resume | `/student/profile` | `GET` / `PUT /api/students/me` (name and phone only), `POST /api/students/me/resume` (upload or replace a PDF), `GET /api/students/me/resume` (a 5-minute link) |
 
 All times are shown in IST.
 
@@ -185,22 +184,36 @@ cd backend
 npx newman run postman\PlacementHub.postman_collection.json
 ```
 
+## Resumes (Milestone 10)
+
+Resumes live in a **private** Supabase Storage bucket. The backend talks to its REST API (no SDK), behind a `ResumeStorage` interface; tests and the `test` profile use an in-memory fake instead.
+
+| Endpoint | Who | What it does |
+|---|---|---|
+| `POST /api/students/me/resume` (multipart, field `file`) | Student | Upload or replace. PDF only (content type and the `%PDF` start), at most 2 MB; otherwise 400. The old file is deleted |
+| `GET /api/students/me/resume` | Student | `{url, expiresInSeconds: 300}`: a signed link to your own resume, or 404 |
+| `GET /api/students/{studentId}/resume` | TPO admin | The same for any student (the "Resume" link on the applicants page) |
+
+The database stores only the file's path (`students/{id}/{uuid}.pdf`); responses show `hasResume`. If Supabase fails, the API answers 502 (an error answer) or 503 (unreachable or not configured) with the usual error JSON.
+
 ## Configuration
 
-The backend reads these environment variables:
+The backend reads these environment variables. In local dev it also reads the root `.env` (`spring.config.import` in `application.yml`); real environment variables win. The full list for production is in [docs/deploy.md](docs/deploy.md).
 
 | Variable | Default if not set |
 |---|---|
-| `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | local dev values in `backend/src/main/resources/application.yml`. These **must match** `.env.example`, because Spring Boot does not read `.env` (only Docker Compose does). |
+| `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | local dev values in `backend/src/main/resources/application.yml`. These **must match** `POSTGRES_*` in `.env`, which Docker Compose uses. |
 | `JWT_SECRET` | a dev-only secret, with a startup **WARNING**. It **must** be set in production, and it must be at least 32 bytes or the app refuses to start. |
 | `JWT_EXPIRY` | `PT2H` (2 hours) |
-| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173`. Comma-separated browser origins allowed to call the API, no trailing slash. Not needed in dev (the Vite proxy is same-origin); set it to the deployed frontend URL in Milestone 12. |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173`. Comma-separated browser origins allowed to call the API, no trailing slash. Not needed in dev (the Vite proxy is same-origin); set it to the deployed frontend URL in production. |
+| `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SUPABASE_RESUME_BUCKET` | empty: resume endpoints answer 503. The secret key is **backend only**. |
+| `PORT` | `8080` (Render sets it) |
 
 The frontend reads one build-time variable (see `frontend/.env.example`; put overrides in `frontend/.env.local`, which is git-ignored):
 
 | Variable | Default if not set |
 |---|---|
-| `VITE_API_BASE_URL` | empty: requests go to `/api` on the same origin (the Vite dev proxy). In Milestone 12 it points at the deployed backend, e.g. `https://<your-backend>.onrender.com`. |
+| `VITE_API_BASE_URL` | empty: requests go to `/api` on the same origin (the Vite dev proxy). In production it points at the deployed backend, e.g. `https://<your-backend>.onrender.com`. |
 
 ## Known limitations
 
@@ -210,8 +223,8 @@ Each of the others has a decision entry with the reasons and the planned fix.
 
 - **Company names:** uniqueness is case-insensitive in the service but the DB constraint is case-sensitive, so two simultaneous creates could store both "Nimbus" and "nimbus" (decision 16).
 - **Company dropdowns** on the drive pages list at most 100 companies, the API's maximum page size (decision 77).
-- **Drive date before the registration deadline** returns 409 instead of 400 (decision 78, fix in Milestone 11).
-- **Postman runs write to the dev database**, so test companies, drives and students pile up (decision 79, a separate test DB in Milestone 11).
+- **An old resume link can outlive a replacement:** after a replace the old file is deleted, but a signed link already handed out may still be served from Supabase's CDN cache for a while (decision 103).
+- **Resume storage clean-up:** if deleting a replaced file fails it stays in the bucket unused, and a student can replace a resume but not remove it (decision 103).
 - The student dashboard's status counts cover the 100 most recent applications (decision 70).
 - **Results sheet:** there is no endpoint to read one round's results, so a student with a result in a later round is read-only on earlier sheets, and those earlier remarks can't be viewed or edited (decision 80).
 - **Selection has no preview:** a placement policy block appears only after you confirm, as a 409 naming each student (decision 81).
@@ -220,6 +233,7 @@ Each of the others has a decision entry with the reasons and the planned fix.
 
 ## Docs
 
+- [Deployment reference](docs/deploy.md): every environment variable, and what blocks going live
 - [Design decisions](docs/decisions.md)
 - [Learning log](docs/learning-log.md)
 - [Milestone history](docs/milestone-history.md)

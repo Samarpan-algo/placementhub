@@ -140,6 +140,7 @@ Each milestone lists what "done" means.
 
 ## Current status
 <!-- I'll update this line as I go -->
-Milestone 9 merged and pushed. Block A in progress on `milestone-10-12a-upload-tests-deployfiles`
-(M10 resume upload, M11 testing pass, M12 deploy files only, no actual deploy).
-At the end of M9: 461 tests, Postman 251/251. What each milestone delivered: `docs/milestone-history.md`.
+Block A complete on `milestone-10-12a-upload-tests-deployfiles` (M10 resume upload, M11 testing pass,
+M12 deploy files only; not merged yet). Next: the rest of M12, the actual deployment. Blocking first:
+remove or replace the seeded demo accounts (decision 104, docs/deploy.md).
+577 tests, Postman 290/290 (on the test DB). What each milestone delivered: `docs/milestone-history.md`.
