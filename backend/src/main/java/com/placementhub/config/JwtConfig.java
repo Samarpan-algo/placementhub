@@ -7,6 +7,7 @@ import javax.crypto.spec.SecretKeySpec;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,13 +31,20 @@ public class JwtConfig {
 	/** DEV ONLY. Used when JWT_SECRET is not set. Milestone 12 must set a real secret. */
 	static final String DEV_ONLY_SECRET = "dev-only-insecure-jwt-secret-CHANGE-ME-before-deploying-0123456789";
 
+	static final String MISSING_SECRET_MESSAGE = "JWT_SECRET is required in production (the prod profile) and must be "
+			+ "at least 32 bytes. See docs/deploy.md for how to generate one";
+
 	/** HS256 needs a key of at least 256 bits. */
 	static final int MIN_SECRET_BYTES = 32;
 
 	@Bean
-	public SecretKey jwtSigningKey(JwtProperties properties) {
+	public SecretKey jwtSigningKey(JwtProperties properties,
+			@Value("${app.jwt.allow-dev-secret:true}") boolean allowDevSecret) {
 		String secret = properties.secret();
 		if (secret == null || secret.isBlank()) {
+			if (!allowDevSecret) {
+				throw new IllegalStateException(MISSING_SECRET_MESSAGE);
+			}
 			log.warn("""
 
 					********************************************************************************
