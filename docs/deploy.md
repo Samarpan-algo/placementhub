@@ -1,61 +1,158 @@
-# Deployment reference
+# Deployment runbook
 
-What each part of a deployment needs: the backend on Render, the database on Supabase Postgres, resumes in Supabase Storage, and the frontend on Vercel. Every value below is a placeholder. Put real values in each platform's settings, never in Git.
+Step by step, for Windows: the database on **Supabase**, the backend on **Render**, the frontend on **Vercel**. Do the steps in order; each one needs something from the one before.
 
-Nothing has been deployed yet. The actual deployment is the rest of Milestone 12.
+Rules for the whole runbook:
+- Everything in `<angle brackets>` is a placeholder: type your own value, without the brackets.
+- Real values go only into the Supabase, Render and Vercel dashboards. Never into a file in this repository, never into a commit.
+- Button names are as of writing. If a dashboard looks different, look for the same words nearby.
 
-## Blocking before production
+## Before you start
 
-**Remove or replace the seeded demo accounts.** `V2__seed_demo_data.sql` creates an admin (`admin@placementhub.dev`) and demo students, all with the password `Demo@1234`, which is public in this repository. Flyway runs that migration on any new database, production included, so anyone could log in as the production admin.
+- [ ] The code you want to deploy is merged into `main` and pushed, and CI is green.
+- [ ] A Supabase project exists, with a **private** Storage bucket named `resumes` (Milestone 10).
+- [ ] You have accounts on Render and Vercel that can see your GitHub repository.
+- [ ] A notepad (not a file in the repo) to collect the values below.
 
-Do not go live until this is fixed and checked: logging in with `admin@placementhub.dev` / `Demo@1234` on the live site must fail.
+**Generate the JWT secret** in PowerShell, and keep the output for step (b):
 
-## Backend (Render)
+```powershell
+$b = New-Object byte[] 48; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)
+```
 
-Create a Web Service from the repo: runtime Docker, root directory `backend`. The `Dockerfile` there builds the image. The health check path is `/api/health`.
+It prints 64 random characters (48 random bytes). Use a new one per deployment; never reuse the example values from any doc.
 
-| Variable | Required | Example | What it is for |
-|---|---|---|---|
-| `DB_URL` | Yes | `jdbc:postgresql://<pooler-host>:5432/postgres?sslmode=require` | The database, in JDBC format (see the next section) |
-| `DB_USERNAME` | Yes | `postgres.<project-ref>` | Database user |
-| `DB_PASSWORD` | Yes | `<database-password>` | Database password |
-| `JWT_SECRET` | Yes | `<output of: openssl rand -base64 48>` | Signs login tokens. At least 32 bytes. Without it, the app uses a public dev-only secret, so anyone could forge tokens |
-| `CORS_ALLOWED_ORIGINS` | Yes | `https://<your-app>.vercel.app` | The browser origins allowed to call the API. Comma-separated, no trailing slash |
-| `SUPABASE_URL` | Yes | `https://<project-ref>.supabase.co` | Supabase project URL, for resume storage |
-| `SUPABASE_SECRET_KEY` | Yes | `<secret-key>` | Lets the backend read and delete every resume. **Backend only:** never in the frontend, logs or Git |
-| `SUPABASE_RESUME_BUCKET` | Yes | `resumes` | The bucket's name. Without these three Supabase values, resume endpoints answer 503 |
-| `JWT_EXPIRY` | No | `PT2H` | How long a login lasts (ISO-8601 duration). Default 2 hours |
-| `PORT` | Set by Render | | The port the app listens on. Don't set it yourself. Default 8080 |
+**Choose the admin login**: an email and a strong password of 8 to 72 characters. The app creates this TPO admin on its first start. The demo accounts (`Demo@1234`) never exist in production: the demo seed runs only in the dev and test profiles.
 
-Never set `SPRING_PROFILES_ACTIVE=test` here. That profile is for tests: it expects a local database and keeps resumes only in memory. `RESUME_STORAGE` should also stay unset.
+## (a) Supabase: the database connection
 
-## Database (Supabase Postgres)
+1. Open your project on <https://supabase.com/dashboard>.
+2. Click **Connect** (top of the project page).
+3. Choose the **Session pooler** connection (not "Direct connection", not "Transaction pooler"). The direct connection may need IPv6, which Render doesn't offer; the transaction pooler doesn't suit Flyway migrations.
+4. Supabase shows a URI like:
 
-No variables are set on Supabase itself. Take the connection details from the project's **Connect** page and give them to the backend as `DB_URL`, `DB_USERNAME` and `DB_PASSWORD`.
+   ```text
+   postgresql://postgres.<project-ref>:[YOUR-PASSWORD]@<pooler-host>:5432/postgres
+   ```
 
-- Use the **session pooler** connection (port 5432). The direct connection may need IPv6, which Render may not offer, and the transaction pooler (port 6543) doesn't suit Flyway migrations.
-- Supabase shows a `postgresql://...` URI. Spring needs the `jdbc:postgresql://host:port/database` form, with the user and password kept in their own variables.
-- Flyway creates the tables on the first start. See the blocking item above about the seed data.
+5. Split it into three values for Render:
 
-## Resume storage (Supabase Storage)
+   | Render variable | What to type | From the URI |
+   |---|---|---|
+   | `DB_URL` | `jdbc:postgresql://<pooler-host>:5432/postgres` | `jdbc:` + `postgresql://` + the part after `@` |
+   | `DB_USERNAME` | `postgres.<project-ref>` | the part before `:` |
+   | `DB_PASSWORD` | your database password | the one you set when creating the project. Forgot it? **Project Settings → Database → Reset database password** |
 
-- Create a bucket named `resumes` and keep it **private**. Do not turn on "public bucket".
-- The backend stores only each file's path. Viewing a resume uses a signed link that lasts 5 minutes.
+Don't add `?sslmode=...` yourself: the backend always requires SSL in production.
 
-## Frontend (Vercel)
+Also note the **Project URL** (`https://<project-ref>.supabase.co`) and the **secret key** (Project Settings → API keys) for resume storage.
 
-Import the repo with root directory `frontend`, build command `npm run build`, output directory `dist`.
+## (b) Render: the backend
 
-| Variable | Required | Example | What it is for |
-|---|---|---|---|
-| `VITE_API_BASE_URL` | Yes | `https://<your-backend>.onrender.com` | The deployed backend, no trailing slash. It is read at **build** time, so redeploy after changing it. It ends up in public JavaScript, so it must never hold a secret |
+1. On <https://dashboard.render.com>: **New → Web Service**, connect GitHub and choose this repository.
+2. Fill in:
 
-`frontend/vercel.json` sends every path to `index.html`, so refreshing a page such as `/admin/drives/5` works. Local development leaves this variable empty and uses the Vite proxy.
+   | Field | Value |
+   |---|---|
+   | Name | `<placementhub-api>` (it becomes part of the URL) |
+   | Branch | `main` |
+   | Region | the one closest to your Supabase region |
+   | Root Directory | `backend` |
+   | Language / Runtime | **Docker** (Render finds `backend/Dockerfile`) |
+   | Instance type | Free |
 
-## Check after deploying
+3. Under **Environment Variables**, add each of these (**Add Environment Variable**, name on the left, value on the right):
 
-1. `https://<your-backend>.onrender.com/api/health` shows `{"status":"UP","database":"UP"}`.
-2. The Render log has no warning about a dev-only JWT secret or missing Supabase settings.
-3. The seeded admin login fails (the blocking item above).
-4. Register a student on the live site, upload a resume, and open it.
-5. The Supabase bucket still shows as private.
+   | Name | What to type | What it is for |
+   |---|---|---|
+   | `DB_URL` | `jdbc:postgresql://<pooler-host>:5432/postgres` | the database, from step (a) |
+   | `DB_USERNAME` | `postgres.<project-ref>` | database user |
+   | `DB_PASSWORD` | `<database-password>` | database password |
+   | `JWT_SECRET` | the output of the PowerShell command | signs login tokens. Required: without it the app refuses to start |
+   | `ADMIN_EMAIL` | `<your-admin-email>` | the TPO admin created on the first start |
+   | `ADMIN_PASSWORD` | `<your-admin-password>` | that admin's password (stored only as a hash, never logged) |
+   | `CORS_ALLOWED_ORIGINS` | `https://placeholder.invalid` for now | the frontend's address; you replace it in step (d) |
+   | `SUPABASE_URL` | `https://<project-ref>.supabase.co` | resume storage |
+   | `SUPABASE_SECRET_KEY` | `<supabase-secret-key>` | full access to the bucket. **Backend only**: never in Vercel, never in the frontend |
+   | `SUPABASE_RESUME_BUCKET` | `resumes` | the bucket's name |
+
+   **Do not add** `SPRING_PROFILES_ACTIVE` (the Docker image already runs as `prod`), `PORT` (Render sets it), or `DB_SSLMODE` (local checks only). `JWT_EXPIRY` is optional (default `PT2H`, 2 hours).
+
+4. Open **Advanced** and set **Health Check Path** to `/api/health`.
+5. Click **Create Web Service** (or **Deploy**). The first build takes several minutes.
+6. Watch **Logs**. A good start shows, in this order:
+   - `The following 1 profile is active: "prod"`
+   - Flyway migrating to version 5
+   - `Created the TPO admin account <your-admin-email> from ADMIN_EMAIL`
+   - `Tomcat started on port ...`
+7. Note the service URL at the top: `https://<placementhub-api>.onrender.com`.
+
+If it stops instead, the last lines say why. The usual ones:
+
+| Log says | Fix |
+|---|---|
+| `JWT_SECRET is required in production` | add `JWT_SECRET` (at least 32 bytes) |
+| `Could not resolve placeholder 'DB_URL'` (or `CORS_ALLOWED_ORIGINS`, ...) | that variable is missing |
+| `set ADMIN_EMAIL and ADMIN_PASSWORD` | the database has no admin yet: add both |
+| `password authentication failed` / `Tenant or user not found` | `DB_USERNAME` must be `postgres.<project-ref>`; check `DB_PASSWORD` |
+| `Connection refused` / timeout to the database | use the **session pooler** host from step (a), port 5432 |
+
+After the first successful start the admin exists and the app no longer needs `ADMIN_PASSWORD`. You can delete `ADMIN_EMAIL` and `ADMIN_PASSWORD` from Render then (Render redeploys). Changing them later does **not** change the existing admin's password.
+
+## (c) Vercel: the frontend
+
+1. On <https://vercel.com>: **Add New… → Project**, import this repository.
+2. Fill in:
+
+   | Field | Value |
+   |---|---|
+   | Root Directory | **Edit** → `frontend` |
+   | Framework Preset | **Vite** |
+   | Build Command | `npm run build` (the default) |
+   | Output Directory | `dist` (the default) |
+
+3. Under **Environment Variables** add one:
+
+   | Name | What to type | What it is for |
+   |---|---|---|
+   | `VITE_API_BASE_URL` | `https://<placementhub-api>.onrender.com` (no trailing slash) | where the browser sends API requests. Read at **build** time and visible in the public JavaScript, so it must never be a secret |
+
+4. Click **Deploy**. Note the production URL, e.g. `https://<your-app>.vercel.app`.
+
+`frontend/vercel.json` makes page refreshes on deep links (such as `/admin/drives/5`) work.
+
+## (d) Render: allow the frontend (CORS)
+
+1. Render → your service → **Environment**.
+2. Edit `CORS_ALLOWED_ORIGINS` to exactly the Vercel URL: `https://<your-app>.vercel.app`. No trailing slash, no path. Several origins: comma-separated.
+3. **Save Changes** and let Render redeploy (or use **Manual Deploy → Deploy latest commit**).
+4. Wait for the log to show `Tomcat started` again.
+
+If you change `VITE_API_BASE_URL` on Vercel later, redeploy on Vercel; if the Vercel URL changes, repeat this step.
+
+## (e) Live smoke test
+
+The free Render instance sleeps after inactivity; the first request can take about a minute.
+
+| # | Do | Expect |
+|---|---|---|
+| 1 | Open `https://<placementhub-api>.onrender.com/api/health` | `{"status":"UP","database":"UP"}` |
+| 2 | Render logs | profile `prod`, no `DEV-ONLY` JWT warning, no "SUPABASE ... is not set" warning |
+| 3 | Open the Vercel URL, log in as `admin@placementhub.dev` / `Demo@1234` | **refused**: the demo accounts don't exist in production |
+| 4 | Log in with your `ADMIN_EMAIL` / `ADMIN_PASSWORD` | the admin home page loads |
+| 5 | Browser DevTools (F12) → Console | no CORS errors |
+| 6 | Admin → Policies | three policies, all **off** |
+| 7 | Admin → Companies → create one; Drives → create a drive and open it | both saved |
+| 8 | Log out, register a new student whose branch, CGPA and batch match the drive | account created, student pages load |
+| 9 | Student → Profile → upload a small PDF → View my resume | the PDF opens in a new tab |
+| 10 | Supabase → Storage → `resumes` | one file under `students/<id>/`; the bucket is still **private** |
+| 11 | Student → Drives → apply to the drive | application APPLIED |
+| 12 | Admin → the drive's applicants → **Resume** | the student is listed; the resume opens |
+| 13 | Refresh the browser on a deep page (e.g. `/admin/drives/1`) | the page loads, no 404 |
+| 14 | Render → Environment | `ADMIN_PASSWORD` deleted, if you chose to (step b) |
+
+## Good to know
+
+- **Free-tier sleep:** Render's free instance sleeps after about 15 minutes without traffic; Supabase pauses a free project after a week of inactivity (resume it in the dashboard).
+- **Memory:** the image limits Java to about 60% of the instance's memory (`JAVA_TOOL_OPTIONS` in the Dockerfile). On a bigger instance you can override `JAVA_TOOL_OPTIONS` on Render.
+- **Secrets that leaked** (pasted somewhere public): rotate them. A new `JWT_SECRET` logs everyone out; a new Supabase key or database password must be updated on Render.
