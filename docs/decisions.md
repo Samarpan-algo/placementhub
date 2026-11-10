@@ -1740,6 +1740,7 @@ A 401 from `/api/auth/login` means a wrong email or password, so the login page 
 - A restart is idempotent, and the password appears in no log.
 
 **Known limitation:** the SSL connection itself is first exercised against Supabase at deploy time.
+**Update (2026-11-11, Block B part 2):** verified. The deployed backend connects to Supabase over SSL through the session pooler, and `/api/health` reports the database UP.
 
 ---
 
@@ -1749,3 +1750,34 @@ A 401 from `/api/auth/login` means a wrong email or password, so the login page 
 **Decision:** `actions/checkout@v7`, `actions/setup-java@v6`, `actions/setup-node@v7`. Each one's `action.yml` declares `using: node24`.
 
 **Why:** It clears GitHub's Node 20 deprecation warnings before Node 20 runners are removed.
+
+---
+
+## 110. First start on Supabase: Flyway baseline at version 0, keeping Supabase's auto-RLS function
+**Milestone:** 12 · **Date:** 2026-11-11
+
+**Problem:** The first deploy stopped with `Found non-empty schema(s) "public" but no schema history table`. The only object in `public` was `rls_auto_enable`, a function Supabase created with the project, run by an event trigger on every `CREATE TABLE` in `public`. It runs `alter table ... enable row level security` (enable, not force) and catches its own errors.
+
+**Decision:** Keep the function. For the first start only, set `SPRING_FLYWAY_BASELINEONMIGRATE=true` and `SPRING_FLYWAY_BASELINEVERSION=0` on Render, then delete both after the first successful start. No code change. Written up in `docs/deploy.md` ("First start on a Supabase database").
+
+**Alternatives:**
+- **Drop the function and its event trigger.** That leaves our tables without RLS, so Supabase's Data API could expose them to anyone with the public anon key.
+- **`baselineOnMigrate` with the default version (1).** That marks V1 as applied and skips creating the tables.
+- **Put the baseline settings in `application-prod.yml`.** Permanent, so a wrong, non-empty database would be migrated on top of instead of refused.
+
+**Why:** Enabled (not forced) RLS doesn't affect the backend: Flyway creates the tables as `postgres`, the same user the app logs in as, and an owner bypasses non-forced RLS. Blocking the Data API is a free security gain. Baseline version 0 runs every real migration. Temporary variables keep Flyway's "refuse a non-empty database" protection for every later start.
+
+**Verified:** the log showed the baseline at 0 and 4 migrations applied (V2 is the demo seed, never in prod). The admin was created, and an API smoke test (create, apply, upload, applicants, resume links) passed.
+
+---
+
+## 111. Hosting regions: Render Singapore, Supabase Sydney
+**Milestone:** 12 · **Date:** 2026-11-11
+
+**Decision:** Render's region is Singapore. The Supabase project was already in Sydney (`ap-southeast-2`).
+
+**Alternatives:** Oregon or another Render region (further from Sydney and from India); a new Supabase project in Singapore (new bucket, new keys, and Milestone 10's set-up repeated).
+
+**Why:** Render has no Sydney region. Singapore is the closest to Sydney (about 90-100 ms per round trip) and also the closest to the users in India. Moving the database isn't worth it for v1.
+
+**Known limitation:** each database round trip pays that latency, so a request with several queries is noticeably slower than locally. A Render region can't be changed in place; it needs a new service.
