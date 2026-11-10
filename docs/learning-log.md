@@ -338,3 +338,22 @@ Short notes, in plain words, on what I learned in each milestone.
 - **Idempotent startup code.** "Create the admin only if none exists" is safe to run on every restart, and I tested both paths.
 - **Prove settings, don't assume them.** Starting with `sslmode=require` against a database without SSL, and watching it refuse, showed the setting really applies.
 - **Small machines need explicit limits.** The connection pool, the thread count and the heap percentage all have defaults sized for big servers.
+
+---
+
+## Block B part 2: The live deployment (2026-11-10 to 2026-11-11)
+
+**What I built:**
+- The backend on Render (Docker, Singapore), the database and resume bucket on Supabase (Sydney), the frontend on Vercel. Live at <https://placementhub-navy.vercel.app> (API: <https://placementhub-api-3gjm.onrender.com>).
+- All secrets typed only into the dashboards. The admin was created from environment variables, and those variables were deleted afterwards.
+- The smoke test passed: health, the demo login refused, my admin login, policies all off, no CORS errors, deep links, and a PowerShell API script (kept outside the repo) that creates a drive, registers a student, applies, uploads a resume, opens both signed links and closes the drive. The resumes bucket is still private.
+
+**What I learned:**
+- **Read the first useful log line, not the stack trace.** "Database: jdbc:postgresql://...pooler... (PostgreSQL 17)" already proved the URL, username, password and SSL were right. The real problem was the one Flyway sentence at the end.
+- **Flyway won't migrate a database that isn't empty.** A managed database can come with objects you didn't create (Supabase's `rls_auto_enable`). I looked at what was there before choosing a fix, and found it was worth keeping.
+- **Not every suggested fix is safe.** The error message said "set baselineOnMigrate", but with its default version (1) it would have skipped V1. Version 0 runs everything. A temporary setting is safer than a permanent one.
+- **RLS: enable vs force.** A table's owner bypasses enabled RLS, so the backend works, while Supabase's public API is blocked.
+- **CORS is checked by the browser, per origin.** The backend must name the exact frontend origin. I checked it with a preflight request (`OPTIONS` with an `Origin` header) instead of guessing.
+- **Free tiers are slow, not broken.** A deploy stays "In progress" for about 10 minutes while the old instance keeps serving. Patience plus a health check beats redeploying in a panic.
+- **Vite variables are baked in at build time.** Changing `VITE_API_BASE_URL` needs a Vercel redeploy, and it's public, so it must never be a secret.
+- **Automate the smoke test, keep secrets out of it.** The script reads credentials from environment variables and prints only PASS/FAIL, so it's safe to run again and to paste the output.
