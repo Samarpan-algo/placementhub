@@ -1,6 +1,15 @@
 # PlacementHub
 
-> Status: backend v1 features done (Milestones 1–7). Frontend (Milestones 8–9): login, student registration, role-based routing, and all student pages (dashboard, drives with eligibility and apply, my applications with withdraw and round tracking, profile), and all admin pages: companies, drives (create/edit, open/close/complete), applicants with CSV export, rounds, bulk results, selection, placement policies, the audit log and stats. Block A (Milestones 10–12a): resume upload to a private Supabase bucket, a separate test database with API tests, and deploy files (Dockerfile, CI, [deploy reference](docs/deploy.md)). Block B part 1: production safety (demo data never in production, the admin from environment variables, a `prod` profile). The actual deployment is next, following [docs/deploy.md](docs/deploy.md).
+> Status: backend v1 features done (Milestones 1–7). Frontend (Milestones 8–9): login, student registration, role-based routing, and all student pages (dashboard, drives with eligibility and apply, my applications with withdraw and round tracking, profile), and all admin pages: companies, drives (create/edit, open/close/complete), applicants with CSV export, rounds, bulk results, selection, placement policies, the audit log and stats. Block A (Milestones 10–12a): resume upload to a private Supabase bucket, a separate test database with API tests, and deploy files (Dockerfile, CI, [deploy reference](docs/deploy.md)). Block B part 1: production safety (demo data never in production, the admin from environment variables, a `prod` profile). Block B part 2 (Milestone 12): **deployed**, following [docs/deploy.md](docs/deploy.md). Next: Milestone 13, polish.
+
+## Live demo
+
+| | URL |
+|---|---|
+| App (Vercel) | <https://placementhub-navy.vercel.app> |
+| API (Render) | <https://placementhub-api-3gjm.onrender.com> (health: [`/api/health`](https://placementhub-api-3gjm.onrender.com/api/health)) |
+
+Free tiers: the API sleeps after about 15 minutes without traffic, so the first request can take about a minute. The demo accounts from the local seed don't exist here; students can register, and the TPO admin was created from environment variables.
 
 ## Problem
 
@@ -11,10 +20,10 @@ Most tier-2/3 colleges run campus placements through WhatsApp groups, Google For
 | Layer    | Technology |
 |----------|------------|
 | Backend  | Java 21, Spring Boot 4, Maven (wrapper), Spring Web, Spring Data JPA, Bean Validation |
-| Database | PostgreSQL 17 (local via Docker Compose) |
+| Database | PostgreSQL 17 (local via Docker Compose; Supabase in production) |
 | Frontend | React 19 + Vite (JavaScript), React Router, axios, plain CSS |
 | Testing  | JUnit 5, Mockito, MockMvc |
-| DevOps   | Docker, GitHub Actions *(planned)* |
+| DevOps   | Docker, GitHub Actions (CI), Render (backend), Supabase (database and resume storage), Vercel (frontend) |
 
 ## Prerequisites
 
@@ -221,13 +230,16 @@ The frontend reads one build-time variable (see `frontend/.env.example`; put ove
 
 **Resolved (Block B): seeded demo accounts in production.** The demo seed runs only in the `dev` and `test` profiles, and production creates its admin from environment variables (decisions 105-107).
 
+**Resolved (Block B part 2): the production SSL connection** to Supabase is verified on the live deployment (decision 108).
+
 Each of the others has a decision entry with the reasons and the planned fix.
 
 - **Company names:** uniqueness is case-insensitive in the service but the DB constraint is case-sensitive, so two simultaneous creates could store both "Nimbus" and "nimbus" (decision 16).
 - **Company dropdowns** on the drive pages list at most 100 companies, the API's maximum page size (decision 77).
 - **An old resume link can outlive a replacement:** after a replace the old file is deleted, but a signed link already handed out may still be served from Supabase's CDN cache for a while (decision 103).
 - **Changing `ADMIN_PASSWORD` later does not change the admin's password;** it is used only to create the first admin, and v1 has no password change (decision 107).
-- **The production SSL database connection** was verified only to be required (a local database without SSL is refused); the first real SSL connection happens at deploy time (decision 108).
+- **Free-tier hosting:** the API sleeps after about 15 minutes idle (the first request then takes about a minute), each deploy takes about 10 minutes, and Supabase pauses a free project after a week without activity.
+- **Backend in Singapore, database in Sydney:** Render has no Sydney region, so every database round trip adds about 100 ms (decision 111).
 - **Demo and normal migrations share one version sequence,** so a new demo migration needs an unused version number (decision 105).
 - **Resume storage clean-up:** if deleting a replaced file fails it stays in the bucket unused, and a student can replace a resume but not remove it (decision 103).
 - The student dashboard's status counts cover the 100 most recent applications (decision 70).
@@ -238,7 +250,7 @@ Each of the others has a decision entry with the reasons and the planned fix.
 
 ## Docs
 
-- [Deployment reference](docs/deploy.md): every environment variable, and what blocks going live
+- [Deployment runbook](docs/deploy.md): Supabase, Render and Vercel step by step, every environment variable, troubleshooting and the smoke test
 - [Design decisions](docs/decisions.md)
 - [Learning log](docs/learning-log.md)
 - [Milestone history](docs/milestone-history.md)

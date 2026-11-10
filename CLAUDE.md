@@ -139,7 +139,8 @@ Each milestone lists what "done" means.
     - Optional: a k6 load test with real numbers.
 
 ## Current status
-Block B part 1 (production safety) complete on `milestone-12-deploy`: demo seed only in dev/test, V5 policies,
-env-var TPO admin, `prod` profile, CI on Node 24, deploy runbook. Next: Block B part 2, the actual deployment
-following `docs/deploy.md`. 601 tests, Postman 290/290 (on the test DB).
+Milestone 12 done: deployed (Block B part 2). Live app: https://placementhub-navy.vercel.app,
+API: https://placementhub-api-3gjm.onrender.com (Render Singapore, Supabase Sydney, Vercel).
+Prod has SMOKE TEST data (company, closed drive, smoke.student@example.com); decide in M13 what the live site
+shows recruiters. Next: Milestone 13, polish. 601 tests, Postman 290/290 (on the test DB).
 What each milestone delivered: `docs/milestone-history.md`.
