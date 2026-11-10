@@ -318,3 +318,23 @@ Short notes, in plain words, on what I learned in each milestone.
 - **Some limits live outside the controller.** Spring rejects a too-large upload before my code runs, so only the global handler can turn it into a 400, and MockMvc can't test it. I needed a test with a real server.
 - **Tests must not touch real data.** A separate database with a fixed URL, a different port and a guard test makes that the default, not something I have to remember.
 - **Caches change the picture.** The old file was deleted, but Supabase's CDN still served the old link. Checking the object directly (an authenticated read) showed what was really true.
+
+---
+
+## Block B part 1: Production safety before deploying (2026-11-10)
+
+**What I built:**
+- The demo seed now runs only in dev and test. Placement policies became V5 reference data, all off in production.
+- The first TPO admin is created from `ADMIN_EMAIL` / `ADMIN_PASSWORD` in production, only once.
+- A `prod` profile that refuses to start without its secrets and forces SSL, with a small connection pool and JVM settings for a free instance.
+- CI actions on Node 24, and `docs/deploy.md` rewritten as a click-by-click runbook.
+- 601 tests, Postman 290/290, and a local prod run on a throwaway database. Nothing is deployed yet.
+
+**What I learned:**
+- **Flyway remembers a checksum for every migration.** Editing an applied file breaks every database that ran it. Moving it unchanged to another folder is fine, which is how the demo seed could leave production without breaking my dev DB.
+- **Reference data vs demo data.** Rows the app can't work without (the policies) belong in normal migrations. `ON CONFLICT DO NOTHING` makes that safe where the rows already exist.
+- **Safe defaults beat instructions.** The Docker image runs as `prod` unless told otherwise, so forgetting a variable can't bring demo accounts into production.
+- **Fail fast at startup.** A missing secret should stop the app with a clear message, not run with a public fallback. It's easier to fix a deploy that never starts than one that is quietly insecure.
+- **Idempotent startup code.** "Create the admin only if none exists" is safe to run on every restart, and I tested both paths.
+- **Prove settings, don't assume them.** Starting with `sslmode=require` against a database without SSL, and watching it refuse, showed the setting really applies.
+- **Small machines need explicit limits.** The connection pool, the thread count and the heap percentage all have defaults sized for big servers.

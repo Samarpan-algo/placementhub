@@ -139,6 +139,7 @@ Each milestone lists what "done" means.
     - Optional: a k6 load test with real numbers.
 
 ## Current status
-Block A (M10, M11, M12 deploy files) merged and pushed; CI green. Block B part 1 in progress on
-`milestone-12-deploy`: production safety (seed split, env-var admin, prod profile, deploy runbook). Nothing deployed yet.
-577 tests, Postman 290/290 (on the test DB). What each milestone delivered: `docs/milestone-history.md`.
+Block B part 1 (production safety) complete on `milestone-12-deploy`: demo seed only in dev/test, V5 policies,
+env-var TPO admin, `prod` profile, CI on Node 24, deploy runbook. Next: Block B part 2, the actual deployment
+following `docs/deploy.md`. 601 tests, Postman 290/290 (on the test DB).
+What each milestone delivered: `docs/milestone-history.md`.

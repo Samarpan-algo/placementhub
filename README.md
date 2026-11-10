@@ -1,6 +1,6 @@
 # PlacementHub
 
-> Status: backend v1 features done (Milestones 1–7). Frontend (Milestones 8–9): login, student registration, role-based routing, and all student pages (dashboard, drives with eligibility and apply, my applications with withdraw and round tracking, profile), and all admin pages: companies, drives (create/edit, open/close/complete), applicants with CSV export, rounds, bulk results, selection, placement policies, the audit log and stats. Block A (Milestones 10–12a): resume upload to a private Supabase bucket, a separate test database with API tests, and deploy files (Dockerfile, CI, [deploy reference](docs/deploy.md)). The actual deployment is next.
+> Status: backend v1 features done (Milestones 1–7). Frontend (Milestones 8–9): login, student registration, role-based routing, and all student pages (dashboard, drives with eligibility and apply, my applications with withdraw and round tracking, profile), and all admin pages: companies, drives (create/edit, open/close/complete), applicants with CSV export, rounds, bulk results, selection, placement policies, the audit log and stats. Block A (Milestones 10–12a): resume upload to a private Supabase bucket, a separate test database with API tests, and deploy files (Dockerfile, CI, [deploy reference](docs/deploy.md)). Block B part 1: production safety (demo data never in production, the admin from environment variables, a `prod` profile). The actual deployment is next, following [docs/deploy.md](docs/deploy.md).
 
 ## Problem
 
@@ -68,22 +68,23 @@ In dev, the Vite server forwards every `/api/...` request to `http://localhost:8
 
 ## Database and demo data
 
-The schema is managed by **Flyway** migrations in `backend/src/main/resources/db/migration`, which run automatically when the app starts:
+The schema is managed by **Flyway**, which runs the migrations automatically when the app starts. Two folders in `backend/src/main/resources/db/`:
 
-- `V1__init.sql`: all tables, constraints and indexes
-- `V2__seed_demo_data.sql`: demo data: 1 admin, 6 students (CSE/ECE/ME), 3 fictional companies, 5 drives, default placement policies
-- `V3__audit_types_and_longer_reason.sql`: audit rows for round results and policy changes; `status_reason` widened to 1000 characters
+| Folder | Runs in | Files |
+|---|---|---|
+| `migration` | every profile, production included | `V1__init.sql` (tables, constraints, indexes), `V3__audit_types_and_longer_reason.sql`, `V4__rename_resume_url_to_resume_path.sql`, `V5__placement_policies_reference_data.sql` (the 3 placement policies, all off) |
+| `demo` | only the `dev` profile (the local default) and `test` | `V2__seed_demo_data.sql`: 1 admin, 6 students (CSE/ECE/ME), 3 fictional companies, 5 drives, demo policy settings |
 
-Migrations are never edited after they are applied; every schema change is a new `V<n>__...sql` file.
+Migrations are never edited after they are applied (Flyway checks their checksums); every change is a new `V<n>__...sql` file with a version number not used in either folder.
 
-**Demo accounts (demo only, never use in production):**
+**Demo accounts (local dev and tests only; they don't exist in production):**
 
 | Role | Email | Password |
 |---|---|---|
 | TPO admin | `admin@placementhub.dev` | `Demo@1234` |
 | Student | `aarav.sharma@student.placementhub.dev` (and 5 others in `V2__seed_demo_data.sql`) | `Demo@1234` |
 
-> ⚠️ This password is public because it is in this README. Before deployment, the admin account must be created from environment variables (see [decisions](docs/decisions.md)).
+> This password is public because it is in this README. That is why the demo seed never runs in production: there, the first TPO admin is created from the `ADMIN_EMAIL` and `ADMIN_PASSWORD` environment variables (decisions 105-107).
 
 To reset the local database to a fresh seeded state: `docker compose down -v`, then `docker compose up -d`, then start the app. **This deletes all local data.**
 
@@ -98,7 +99,7 @@ The API uses stateless **JWT** bearer tokens (HS256, valid for 2 hours).
 | `/api/companies/**`, `/api/drives/**`, `/api/policies/**`, `/api/audit/**`, `/api/stats/**` | `TPO_ADMIN` |
 
 - **Students** register themselves with `POST /api/auth/register`. Their academic details are self-reported at registration and read-only afterwards.
-- **TPO admin accounts** can't be registered. The demo admin comes from the seed data.
+- **TPO admin accounts** can't be registered. Locally the demo admin comes from the demo seed; in production the first admin is created from `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
 
 ```powershell
 # Log in and keep the token
@@ -208,6 +209,7 @@ The backend reads these environment variables. In local dev it also reads the ro
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173`. Comma-separated browser origins allowed to call the API, no trailing slash. Not needed in dev (the Vite proxy is same-origin); set it to the deployed frontend URL in production. |
 | `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SUPABASE_RESUME_BUCKET` | empty: resume endpoints answer 503. The secret key is **backend only**. |
 | `PORT` | `8080` (Render sets it) |
+| `SPRING_PROFILES_ACTIVE` | `dev` locally (demo seed, dev JWT fallback). The Docker image sets `prod`: then `JWT_SECRET`, `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` and `CORS_ALLOWED_ORIGINS` are **required**, SSL is forced, and `ADMIN_EMAIL` / `ADMIN_PASSWORD` create the first admin. Tests use `test`. |
 
 The frontend reads one build-time variable (see `frontend/.env.example`; put overrides in `frontend/.env.local`, which is git-ignored):
 
@@ -217,13 +219,16 @@ The frontend reads one build-time variable (see `frontend/.env.example`; put ove
 
 ## Known limitations
 
-**Blocking before production: remove or replace the seeded demo accounts.** The demo seed creates an admin and students with the public password `Demo@1234`, and Flyway would run it on a production database too. See [docs/deploy.md](docs/deploy.md).
+**Resolved (Block B): seeded demo accounts in production.** The demo seed runs only in the `dev` and `test` profiles, and production creates its admin from environment variables (decisions 105-107).
 
 Each of the others has a decision entry with the reasons and the planned fix.
 
 - **Company names:** uniqueness is case-insensitive in the service but the DB constraint is case-sensitive, so two simultaneous creates could store both "Nimbus" and "nimbus" (decision 16).
 - **Company dropdowns** on the drive pages list at most 100 companies, the API's maximum page size (decision 77).
 - **An old resume link can outlive a replacement:** after a replace the old file is deleted, but a signed link already handed out may still be served from Supabase's CDN cache for a while (decision 103).
+- **Changing `ADMIN_PASSWORD` later does not change the admin's password;** it is used only to create the first admin, and v1 has no password change (decision 107).
+- **The production SSL database connection** was verified only to be required (a local database without SSL is refused); the first real SSL connection happens at deploy time (decision 108).
+- **Demo and normal migrations share one version sequence,** so a new demo migration needs an unused version number (decision 105).
 - **Resume storage clean-up:** if deleting a replaced file fails it stays in the bucket unused, and a student can replace a resume but not remove it (decision 103).
 - The student dashboard's status counts cover the 100 most recent applications (decision 70).
 - **Results sheet:** there is no endpoint to read one round's results, so a student with a result in a later round is read-only on earlier sheets, and those earlier remarks can't be viewed or edited (decision 80).
