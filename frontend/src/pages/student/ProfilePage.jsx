@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import api from '../../api/client.js';
 import { FIX_FIELDS_MESSAGE, toApiError } from '../../api/errors.js';
+import { openResume, resumeFileProblem } from '../../api/resume.js';
 import { useApi } from '../../api/useApi.js';
 import ErrorAlert from '../../components/ErrorAlert.jsx';
 import Field from '../../components/Field.jsx';
@@ -83,6 +84,94 @@ function EditForm({ profile, onSaved, onCancel }) {
   );
 }
 
+/** Upload, replace and view the student's resume. Each action has its own busy state and error. */
+function ResumeSection({ hasResume, updatedAt, onUploaded }) {
+  const [file, setFile] = useState(null);
+  const [inputKey, setInputKey] = useState(0); // changing the key empties the file input after an upload
+  const [uploading, setUploading] = useState(false);
+  const [opening, setOpening] = useState(false);
+  const [error, setError] = useState(null);
+  const [message, setMessage] = useState(null);
+
+  function handleFileChange(event) {
+    const chosen = event.target.files[0] ?? null;
+    setMessage(null);
+    const problem = chosen && resumeFileProblem(chosen);
+    setError(problem ? { message: problem, details: [] } : null);
+    setFile(problem ? null : chosen);
+  }
+
+  async function handleUpload(event) {
+    event.preventDefault();
+    setUploading(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      await api.post('/api/students/me/resume', form); // axios sets the multipart Content-Type itself
+      setFile(null);
+      setInputKey((key) => key + 1);
+      setMessage(hasResume ? 'Resume replaced.' : 'Resume uploaded.');
+      onUploaded();
+    } catch (err) {
+      setError(toApiError(err));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleView() {
+    setOpening(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await openResume('/api/students/me/resume');
+    } catch (apiError) {
+      setError(apiError);
+    } finally {
+      setOpening(false);
+    }
+  }
+
+  return (
+    <section className="card">
+      <h2>Resume</h2>
+      {message && <div className="alert alert-success">{message}</div>}
+      <ErrorAlert error={error} />
+
+      {hasResume ? (
+        <p>
+          <button type="button" className="btn btn-secondary" onClick={handleView} disabled={opening || uploading}>
+            {opening ? 'Opening…' : 'View my resume'}
+          </button>
+        </p>
+      ) : (
+        <p className="muted">No resume uploaded yet.</p>
+      )}
+
+      <form className="form" onSubmit={handleUpload} noValidate>
+        <Field id="resumeFile" label={hasResume ? 'Replace it with a new PDF' : 'Upload a PDF'} hint="PDF only, at most 2 MB">
+          <input
+            key={inputKey}
+            id="resumeFile"
+            type="file"
+            accept="application/pdf,.pdf"
+            onChange={handleFileChange}
+            disabled={uploading}
+          />
+        </Field>
+        <div className="button-row">
+          <button type="submit" className="btn btn-primary" disabled={!file || uploading}>
+            {uploading ? 'Uploading…' : hasResume ? 'Replace resume' : 'Upload resume'}
+          </button>
+        </div>
+      </form>
+      <p className="muted">Profile last updated: {formatDateTime(updatedAt)}</p>
+    </section>
+  );
+}
+
 function Row({ label, children }) {
   return (
     <div className="review-row">
@@ -152,17 +241,7 @@ export default function ProfilePage() {
         </dl>
       </section>
 
-      <section className="card">
-        <h2>Resume</h2>
-        {profile.resumeUrl ? (
-          <a href={profile.resumeUrl} target="_blank" rel="noreferrer">
-            View my resume
-          </a>
-        ) : (
-          <p className="muted">No resume uploaded yet. Resume upload is coming in a later milestone.</p>
-        )}
-        <p className="muted">Profile last updated: {formatDateTime(profile.updatedAt)}</p>
-      </section>
+      <ResumeSection hasResume={profile.hasResume} updatedAt={profile.updatedAt} onUploaded={reload} />
     </div>
   );
 }

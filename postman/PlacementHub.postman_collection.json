@@ -1,13 +1,13 @@
 {
   "info": {
     "name": "PlacementHub",
-    "description": "PlacementHub API (Milestones 3-7): health, auth, companies, drives, students, policies, drive lifecycle, admin views (applicants, CSV, criteria changes, audit, stats).\n\nRun folders top to bottom (or use the Collection Runner). The Auth folder logs in and saves tokens (adminToken, aaravToken, priyaToken); later requests use them. Default auth is Bearer {{adminToken}}; student requests override it with {{aaravToken}} / {{priyaToken}}.\n\nDemo password for seeded accounts: {{demoPassword}} (demo only).\n\nNote: there is no DELETE for drives, so drives created by this collection stay in your local DB. Reset with `docker compose down -v` then `docker compose up -d` (deletes all local data).",
+    "description": "PlacementHub API (Milestones 3-11): health, auth, companies, drives, students, policies, drive lifecycle, admin views (applicants, CSV, criteria changes, audit, stats), resume upload.\n\nRun folders top to bottom (or use the Collection Runner). The Auth folder logs in and saves tokens (adminToken, aaravToken, priyaToken); later requests use them. Default auth is Bearer {{adminToken}}; student requests override it with {{aaravToken}} / {{priyaToken}}.\n\nDemo password for seeded accounts: {{demoPassword}} (demo only).\n\nTEST DATABASE ONLY: baseUrl is http://localhost:8081, the app started with the \"test\" profile (database placementhub_test, fake resume storage). Your dev server on 8080 and its data are never touched. The README section \"Tests\" has the exact commands, including how to reset the test database.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http://localhost:8080"
+      "value": "http://localhost:8081"
     },
     {
       "key": "demoPassword",
@@ -222,6 +222,18 @@
     },
     {
       "key": "avApp3",
+      "value": ""
+    },
+    {
+      "key": "newStudentId",
+      "value": ""
+    },
+    {
+      "key": "newStudentToken",
+      "value": ""
+    },
+    {
+      "key": "firstResumeUrl",
       "value": ""
     }
   ],
@@ -494,7 +506,8 @@
                   "  pm.expect(b.email).to.eql(pm.collectionVariables.get('newStudentEmail'));",
                   "  pm.expect(b.rollNo).to.eql(pm.collectionVariables.get('newStudentRollNo'));",
                   "  pm.expect(b).to.not.have.property('accessToken');",
-                  "});"
+                  "});",
+                  "pm.collectionVariables.set('newStudentId', pm.response.json().id);"
                 ]
               }
             }
@@ -539,7 +552,8 @@
                   "pm.test('200, role STUDENT even though the register body said TPO_ADMIN', () => {",
                   "  pm.response.to.have.status(200);",
                   "  pm.expect(pm.response.json().role).to.eql('STUDENT');",
-                  "});"
+                  "});",
+                  "pm.collectionVariables.set('newStudentToken', pm.response.json().accessToken);"
                 ]
               }
             }
@@ -1103,6 +1117,37 @@
                   "  pm.response.to.have.status(400);",
                   "  const m = pm.response.json().message;",
                   "  ['ctcLpa', 'maxBacklogs', 'minCgpa', 'roleTitle'].forEach(f => pm.expect(m).to.include(f));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Create drive, drive date before the deadline (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/drives",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"companyId\": {{seedCompanyId}},\n  \"roleTitle\": \"Postman Bad Dates\",\n  \"jobType\": \"INTERNSHIP\",\n  \"ctcLpa\": 4.80,\n  \"minCgpa\": 7.0,\n  \"maxBacklogs\": 0,\n  \"graduationYear\": 2027,\n  \"registrationDeadline\": \"{{futureDeadline}}\",\n  \"driveDate\": \"2020-01-01\",\n  \"branches\": [\"CSE\"]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400, invalid input and not a conflict', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().message).to.eql('Drive date cannot be before the registration deadline');",
                   "});"
                 ]
               }
@@ -5497,6 +5542,672 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('200 COMPLETED', () => pm.expect(pm.response.json().status).to.eql('COMPLETED'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Resume (M10)",
+      "description": "Runs on the test profile, where resumes go to an in-memory fake. Uses the student registered in the Auth folder, so it can be re-run.",
+      "item": [
+        {
+          "name": "ERR New student: view before uploading (404)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/resume",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{newStudentToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 no resume yet', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: view a student without a resume (404)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/{{newStudentId}}/resume"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 this student has no resume', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Upload without a token (401)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/students/me/resume",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data; boundary=pmResumeBoundary"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "--pmResumeBoundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"resume.pdf\"\r\nContent-Type: application/pdf\r\n\r\n%PDF-1.7 a small test resume\r\n--pmResumeBoundary--\r\n"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 login needed', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: upload (403)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/students/me/resume",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data; boundary=pmResumeBoundary"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "--pmResumeBoundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"resume.pdf\"\r\nContent-Type: application/pdf\r\n\r\n%PDF-1.7 a small test resume\r\n--pmResumeBoundary--\r\n"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 students only', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Upload an image content type (400)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/students/me/resume",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{newStudentToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data; boundary=pmResumeBoundary"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "--pmResumeBoundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"resume.pdf\"\r\nContent-Type: image/png\r\n\r\n%PDF-1.7 not really\r\n--pmResumeBoundary--\r\n"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400: Only PDF files are allowed', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().message).to.eql(\"Only PDF files are allowed\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Upload PDF content type with other bytes (400)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/students/me/resume",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{newStudentToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data; boundary=pmResumeBoundary"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "--pmResumeBoundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"resume.pdf\"\r\nContent-Type: application/pdf\r\n\r\n<html>not a pdf</html>\r\n--pmResumeBoundary--\r\n"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400: This file is not a valid PDF', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().message).to.eql(\"This file is not a valid PDF\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Upload an empty file (400)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/students/me/resume",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{newStudentToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data; boundary=pmResumeBoundary"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "--pmResumeBoundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"resume.pdf\"\r\nContent-Type: application/pdf\r\n\r\n\r\n--pmResumeBoundary--\r\n"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400: The file is empty. Choose a PDF file to upload', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().message).to.eql(\"The file is empty. Choose a PDF file to upload\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Upload in the wrong field (400)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/students/me/resume",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{newStudentToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data; boundary=pmResumeBoundary"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "--pmResumeBoundary\r\nContent-Disposition: form-data; name=\"resume\"; filename=\"resume.pdf\"\r\nContent-Type: application/pdf\r\n\r\n%PDF-1.7\r\n--pmResumeBoundary--\r\n"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400: says to send a multipart file field', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().message).to.eql(\"Send the file as multipart/form-data in a field named 'file'\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Upload JSON instead of a file (400)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/students/me/resume",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{newStudentToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400: says to send a multipart file field', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().message).to.eql(\"Send the file as multipart/form-data in a field named 'file'\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Upload over 2 MB (400)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/students/me/resume",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{newStudentToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data; boundary=pmResumeBoundary"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "--pmResumeBoundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"resume.pdf\"\r\nContent-Type: application/pdf\r\n\r\n{{largePdf}}\r\n--pmResumeBoundary--\r\n"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// About 2.2 MB, built here so the collection needs no file on disk",
+                  "pm.variables.set('largePdf', '%PDF-' + 'x'.repeat(2300000));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400: The file is too large. The maximum size is 2 MB', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().message).to.eql(\"The file is too large. The maximum size is 2 MB\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "New student: upload a PDF (200)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/students/me/resume",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{newStudentToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data; boundary=pmResumeBoundary"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "--pmResumeBoundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"resume.pdf\"\r\nContent-Type: application/pdf\r\n\r\n%PDF-1.7 a small test resume\r\n--pmResumeBoundary--\r\n"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 profile says hasResume and never shows the path', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.hasResume).to.eql(true);",
+                  "  pm.expect(b).to.not.have.property('resumePath');",
+                  "  pm.expect(pm.response.text()).to.not.include('students/');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "New student: view my resume (200, 5 minute link)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/resume",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{newStudentToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 a link for this student, valid for 300 seconds', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.url).to.include('students/' + pm.collectionVariables.get('newStudentId') + '/');",
+                  "  pm.expect(b.expiresInSeconds).to.eql(300);",
+                  "  pm.collectionVariables.set('firstResumeUrl', b.url);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "New student: replace the PDF (200)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/students/me/resume",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{newStudentToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "multipart/form-data; boundary=pmResumeBoundary"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "--pmResumeBoundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"resume.pdf\"\r\nContent-Type: application/pdf\r\n\r\n%PDF-1.7 the second version\r\n--pmResumeBoundary--\r\n"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 replaced', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "New student: the link now points at a new file (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/resume",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{newStudentToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 a different object than before', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().url).to.not.eql(pm.collectionVariables.get('firstResumeUrl'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin: view the student's resume (200)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/{{newStudentId}}/resume"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 a link for that student', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().url).to.include('students/' + pm.collectionVariables.get('newStudentId') + '/');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Priya: view another student's resume (403)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/{{newStudentId}}/resume",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{priyaToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 students reach only their own, through /me', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR The same student by id, not /me (403)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/{{newStudentId}}/resume",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{newStudentToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 the id route is admin only', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: the student-only route (403)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/resume"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 admins use the id route', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: a missing student (404)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/999999999/resume"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 no such student', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR Admin: an id that is not a number (400)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/abc/resume"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 bad id', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ERR View without a token (401)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/students/me/resume",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 login needed', () => pm.response.to.have.status(401));"
                 ]
               }
             }

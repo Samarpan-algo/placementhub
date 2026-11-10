@@ -18,6 +18,9 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -79,6 +82,19 @@ public class GlobalExceptionHandler {
 		return build(HttpStatus.BAD_REQUEST, "Cannot sort by unknown field '" + ex.getPropertyName() + "'", request);
 	}
 
+	/** Spring rejects an oversized upload before any controller runs, so it can only be caught here. */
+	@ExceptionHandler(MaxUploadSizeExceededException.class)
+	public ResponseEntity<ErrorResponse> handleUploadTooLarge(MaxUploadSizeExceededException ex,
+			HttpServletRequest request) {
+		return build(HttpStatus.BAD_REQUEST, "The file is too large. The maximum size is 2 MB", request);
+	}
+
+	/** Not a multipart request, an unreadable one, or no part with the expected name. */
+	@ExceptionHandler({ MultipartException.class, MissingServletRequestPartException.class })
+	public ResponseEntity<ErrorResponse> handleBadUpload(Exception ex, HttpServletRequest request) {
+		return build(HttpStatus.BAD_REQUEST, "Send the file as multipart/form-data in a field named 'file'", request);
+	}
+
 	// ---------- 401 ----------
 
 	/** Failed login. Same message for unknown email and wrong password, so emails can't be probed. */
@@ -130,6 +146,15 @@ public class GlobalExceptionHandler {
 	public ResponseEntity<ErrorResponse> handleUnprocessable(UnprocessableEntityException ex,
 			HttpServletRequest request) {
 		return build(HttpStatus.UNPROCESSABLE_CONTENT, ex.getMessage(), ex.getDetails(), request);
+	}
+
+	// ---------- 502 / 503 ----------
+
+	/** Already logged where it happened. The message is ours, never the other service's response. */
+	@ExceptionHandler(ExternalServiceException.class)
+	public ResponseEntity<ErrorResponse> handleExternalService(ExternalServiceException ex,
+			HttpServletRequest request) {
+		return build(ex.getStatus(), ex.getMessage(), request);
 	}
 
 	// ---------- 500 ----------

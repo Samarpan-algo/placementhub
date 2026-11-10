@@ -46,6 +46,7 @@ import com.placementhub.config.JwtProperties;
 import com.placementhub.config.SecurityConfig;
 import com.placementhub.drive.DriveService;
 import com.placementhub.policy.PolicyService;
+import com.placementhub.resume.ResumeService;
 import com.placementhub.round.RoundResultService;
 import com.placementhub.round.RoundService;
 import com.placementhub.stats.StatsService;
@@ -96,6 +97,8 @@ class SecurityAccessTest {
 	@MockitoBean
 	private AuthService authService;
 	@MockitoBean
+	private ResumeService resumeService;
+	@MockitoBean
 	private UserDetailsService userDetailsService;
 	@MockitoBean
 	private DataSource dataSource;
@@ -143,7 +146,10 @@ class SecurityAccessTest {
 				new Endpoint(HttpMethod.GET, "/api/students/me/drives/1", Role.STUDENT),
 				new Endpoint(HttpMethod.GET, "/api/students/me/applications", Role.STUDENT),
 				new Endpoint(HttpMethod.GET, "/api/students/me/applications/1", Role.STUDENT),
-				new Endpoint(HttpMethod.POST, "/api/students/me/applications/1/withdraw", Role.STUDENT));
+				new Endpoint(HttpMethod.POST, "/api/students/me/applications/1/withdraw", Role.STUDENT),
+				new Endpoint(HttpMethod.POST, "/api/students/me/resume", Role.STUDENT),
+				new Endpoint(HttpMethod.GET, "/api/students/me/resume", Role.STUDENT),
+				new Endpoint(HttpMethod.GET, "/api/students/5/resume", Role.TPO_ADMIN));
 	}
 
 	@ParameterizedTest(name = "no token -> 401: {0}")

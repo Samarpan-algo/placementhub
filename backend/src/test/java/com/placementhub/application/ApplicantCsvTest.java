@@ -16,7 +16,7 @@ class ApplicantCsvTest {
 	private static ApplicantResponse applicant(String name, String phone, ApplicantResponse.LatestRound latest) {
 		return new ApplicantResponse(11L, ApplicationStatus.SHORTLISTED, null,
 				Instant.parse("2026-10-20T09:30:00Z"), Instant.parse("2026-10-21T09:30:00Z"), 1L, name, "23CSE001",
-				"riya@student.dev", Branch.CSE, new BigDecimal("8.50"), 0, 2027, phone,
+				"riya@student.dev", Branch.CSE, new BigDecimal("8.50"), 0, 2027, phone, false,
 				new ApplicantResponse.Progress(3, latest));
 	}
 

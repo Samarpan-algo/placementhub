@@ -298,3 +298,23 @@ Short notes, in plain words, on what I learned in each milestone.
 - **"Inclusive end day" means an exclusive next-day start.** To include all of 4 Nov IST, I send `to` as 5 Nov 00:00 IST, because the backend's `to` is exclusive.
 - **A disabled button plus a stale error is a trap.** My own browser test found a form stuck until refresh: the error cleared only on submit, and submit was disabled. Fixing it in one shared hook fixed every form at once, which is why I checked the other forms instead of patching one.
 - **A custom hook shares logic, not looks.** `useFormErrors` holds no markup, only the state and the rule for clearing it.
+
+---
+
+## Block A: Resume upload, testing pass, deploy files (2026-11-04 to 2026-11-10)
+
+**What I built:**
+- Resume upload to a private Supabase Storage bucket through its REST API, behind a `ResumeStorage` interface with a fake for tests. Students upload, replace and view their resume; admins open any applicant's from the applicants list. Each view uses a 5-minute signed link.
+- A separate test database (`placementhub_test`, the `test` profile on port 8081), MockMvc API tests for the main endpoints, the drive-date check changed to 400, and a Postman folder for resumes.
+- A Dockerfile, a CI workflow, a Vercel rewrite and `docs/deploy.md`. Nothing has been deployed yet.
+- 577 tests (from 461), Postman 290/290, and a real-Supabase smoke test passed.
+
+**What I learned:**
+- **Program to an interface.** The services know only `ResumeStorage`. Swapping Supabase for a fake is one property, which is why no test ever touches the real bucket.
+- **Don't trust the browser's content type.** It comes from the file extension. Checking the first bytes (`%PDF`) catches a renamed text file.
+- **A DB transaction can't undo a network call.** So I put the steps in a safe order: upload the new file, then switch the path in the DB, then delete the old file. Whatever fails, the database never points at a missing file.
+- **Store a path, hand out short-lived links.** A private bucket plus a 5-minute signed URL means the backend decides who sees a resume, every time.
+- **Errors from other services need translating.** Supabase errors become our own 502 or 503 with our JSON. Their text never reaches the user, and the secret key never reaches the logs.
+- **Some limits live outside the controller.** Spring rejects a too-large upload before my code runs, so only the global handler can turn it into a 400, and MockMvc can't test it. I needed a test with a real server.
+- **Tests must not touch real data.** A separate database with a fixed URL, a different port and a guard test makes that the default, not something I have to remember.
+- **Caches change the picture.** The old file was deleted, but Supabase's CDN still served the old link. Checking the object directly (an authenticated read) showed what was really true.

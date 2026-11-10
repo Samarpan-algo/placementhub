@@ -59,8 +59,9 @@ public class StudentProfile {
 	@Column(length = 15)
 	private String phone;
 
-	@Column(name = "resume_url", columnDefinition = "text")
-	private String resumeUrl;
+	/** The object's path in the private bucket, never sent to clients. Null until the first upload. */
+	@Column(name = "resume_path", columnDefinition = "text")
+	private String resumePath;
 
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
@@ -138,8 +139,12 @@ public class StudentProfile {
 		this.phone = phone;
 	}
 
-	public String getResumeUrl() {
-		return resumeUrl;
+	public String getResumePath() {
+		return resumePath;
+	}
+
+	public void setResumePath(String resumePath) {
+		this.resumePath = resumePath;
 	}
 
 	public Instant getCreatedAt() {

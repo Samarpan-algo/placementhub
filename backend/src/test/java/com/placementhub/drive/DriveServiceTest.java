@@ -43,6 +43,7 @@ import com.placementhub.audit.AuditAction;
 import com.placementhub.audit.AuditEntityType;
 import com.placementhub.audit.AuditService;
 import com.placementhub.common.Branch;
+import com.placementhub.common.BadRequestException;
 import com.placementhub.common.ConflictException;
 import com.placementhub.common.ResourceNotFoundException;
 import com.placementhub.company.Company;
@@ -528,7 +529,7 @@ class DriveServiceTest {
 
 			// deadline is NOW + 10 days (2026-11-11); drive date 2026-11-05 is earlier
 			assertThatThrownBy(() -> driveService.create(createRequest(1L, LocalDate.of(2026, 11, 5))))
-					.isInstanceOf(ConflictException.class)
+					.isInstanceOf(BadRequestException.class)
 					.hasMessage("Drive date cannot be before the registration deadline");
 			verify(driveRepository, never()).save(any());
 		}
@@ -545,7 +546,7 @@ class DriveServiceTest {
 			// 2 Dec is the day BEFORE the deadline in IST, even though it is the deadline's UTC day
 			assertThatThrownBy(() -> driveService.create(
 					createRequest(1L, DEADLINE_3_DEC_2AM_IST, LocalDate.of(2026, 12, 2))))
-					.isInstanceOf(ConflictException.class)
+					.isInstanceOf(BadRequestException.class)
 					.hasMessage("Drive date cannot be before the registration deadline");
 			verify(driveRepository, never()).save(any());
 		}

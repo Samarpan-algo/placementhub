@@ -21,7 +21,7 @@ public class StudentProfileMapper {
 				profile.getCgpa(),
 				profile.getActiveBacklogs().intValue(),
 				profile.getPhone(),
-				profile.getResumeUrl(),
+				profile.getResumePath() != null,
 				profile.getUpdatedAt());
 	}
 

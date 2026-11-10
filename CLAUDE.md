@@ -97,7 +97,7 @@ placementhub/
 ```
 users             (id, email UNIQUE, password_hash, role, created_at)
 student_profiles  (id, user_id UNIQUE FK, full_name, roll_no UNIQUE, branch, graduation_year,
-                   cgpa NUMERIC(4,2), active_backlogs, phone, resume_url, updated_at)
+                   cgpa NUMERIC(4,2), active_backlogs, phone, resume_path, updated_at)
 companies         (id, name UNIQUE, website, description, created_at)
 drives            (id, company_id FK, role_title, job_type, ctc_lpa NUMERIC, location, description,
                    min_cgpa, max_backlogs, graduation_year, registration_deadline, drive_date,
@@ -140,5 +140,7 @@ Each milestone lists what "done" means.
 
 ## Current status
 <!-- I'll update this line as I go -->
-Milestone 9 complete (on branch `milestone-9-frontend-pages`, not merged yet). Next: Milestone 10, resume upload.
-461 tests, Postman 251/251. What each milestone delivered: `docs/milestone-history.md`.
+Block A complete on `milestone-10-12a-upload-tests-deployfiles` (M10 resume upload, M11 testing pass,
+M12 deploy files only; not merged yet). Next: the rest of M12, the actual deployment. Blocking first:
+remove or replace the seeded demo accounts (decision 104, docs/deploy.md).
+577 tests, Postman 290/290 (on the test DB). What each milestone delivered: `docs/milestone-history.md`.

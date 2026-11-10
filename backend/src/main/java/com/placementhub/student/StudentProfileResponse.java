@@ -15,6 +15,6 @@ public record StudentProfileResponse(
 		BigDecimal cgpa,
 		Integer activeBacklogs,
 		String phone,
-		String resumeUrl,
+		boolean hasResume,
 		Instant updatedAt) {
 }
