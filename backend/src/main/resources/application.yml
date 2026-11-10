@@ -8,6 +8,15 @@ spring:
   application:
     name: placementhub
 
+  # No SPRING_PROFILES_ACTIVE (a plain local run) means "dev", which also loads the demo seed.
+  # The Docker image sets SPRING_PROFILES_ACTIVE=prod. Tests use "test".
+  profiles:
+    default: dev
+
+  # Schema and reference data only. The dev and test profiles add classpath:db/demo (the demo seed).
+  flyway:
+    locations: classpath:db/migration
+
   # Local dev: also read the repo root's .env as if its lines were properties. There are two paths because
   # the app may start from backend/ or from the repo root. "optional:" = fine if missing (CI, Render).
   # Real environment variables always win over this file.
@@ -46,6 +55,7 @@ app:
     # Empty -> JwtConfig uses a DEV-ONLY secret and logs a loud WARNING. Production MUST set JWT_SECRET
     # (at least 32 bytes / 256 bits, e.g. `openssl rand -base64 48`). See docs/decisions.md.
     secret: ${JWT_SECRET:}
+    allow-dev-secret: true       # the prod profile sets false: no JWT_SECRET there = no startup
     expiry: ${JWT_EXPIRY:PT2H}   # ISO-8601 duration; no refresh tokens in v1
     issuer: placementhub
 

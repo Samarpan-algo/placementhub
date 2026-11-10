@@ -1,4 +1,4 @@
-# The "test" profile: JUnit tests and Postman runs. It can never touch your dev data or the real bucket:
+# The "test" profile: JUnit tests and Postman runs (with the demo seed). It can never touch your dev data or the real bucket:
 #  - the database URL is written out here on purpose, so a DB_URL variable can't redirect it to dev
 #  - port 8081, so it can run next to the dev server on 8080
 #  - resumes go to an in-memory fake, never to Supabase
@@ -15,6 +15,8 @@ spring:
     url: jdbc:postgresql://localhost:5432/placementhub_test
     username: placementhub
     password: placementhub_dev
+  flyway:
+    locations: classpath:db/migration,classpath:db/demo   # the demo logins are used by Postman
 
 app:
   resume:
